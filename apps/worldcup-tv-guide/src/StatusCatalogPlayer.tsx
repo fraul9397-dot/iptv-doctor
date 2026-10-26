@@ -78,15 +78,14 @@ function parseWebSources(text: string, filename: string): WebSource[] {
   const ext = filename.toLowerCase().split(".").pop();
   const safeUrl = (value: unknown): string | undefined => {
     if (typeof value !== "string" || !value.trim()) return undefined;
-    const candidate = /^https?:\\/\\//i.test(value) ? value : `https://${value}`;
-    try {
+    const candidate = /^https?:\/\//i.test(value) ? value : \`https://\${value}\`;\n    try {
       const parsed = new URL(candidate);
       return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.toString() : undefined;
     } catch { return undefined; }
   };
   try {
     if (ext === "csv") {
-      const rows = text.replace(/^\\uFEFF/, "").split(/\\r?\\n/).filter(Boolean);
+      const rows = text.replace(/^\uFEFF/, "").split(/\r?\n/).filter(Boolean);
       if (rows.length < 2) return [];
       const headers = csvCells(rows[0]).map((item) => item.toLowerCase());
       const hostIndex = headers.findIndex((h) => /^(urlhost|host|domain|website|site)$/i.test(h));
@@ -186,7 +185,9 @@ export function StatusCatalogPlayer() {
     setPlaying(false);
     try {
       const fileText = await file.text();
-      const sources = parseWebSources(fileText, file.name);\n      setWebSources(sources);\n      const parsed = parseCatalog(fileText, file.name);
+      const sources = parseWebSources(fileText, file.name);
+      setWebSources(sources);
+      const parsed = parseCatalog(fileText, file.name);
       const unique = [...new Map(parsed.map((channel) => [channel.url, channel])).values()];
       setChannels(unique);
       setSelectedUrl(unique[0]?.url ?? "");
@@ -214,7 +215,9 @@ export function StatusCatalogPlayer() {
       if (!response.ok) throw new Error(`El catálogo respondió HTTP ${response.status}.`);
       const text = await response.text();
       const filename = url.pathname.split("/").pop() || "catalog.json";
-      const sources = parseWebSources(text, filename);\n      setWebSources(sources);\n      const parsed = parseCatalog(text, filename);
+      const sources = parseWebSources(text, filename);
+      setWebSources(sources);
+      const parsed = parseCatalog(text, filename);
       const unique = [...new Map(parsed.map((channel) => [channel.url, channel])).values()];
       setChannels(unique);
       setSelectedUrl(unique[0]?.url ?? "");
