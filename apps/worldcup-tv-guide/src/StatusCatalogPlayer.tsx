@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { parseM3U } from "iptv-doctor-core";
 
 type CatalogChannel = { name: string; url: string; country?: string; category?: string };
+type SavedCatalog = { id: string; name: string; savedAt: string; channels: CatalogChannel[] };
 type WebSource = { name: string; country?: string; category?: string; status?: string; latencyMs?: number; url: string };
 type DiscoveredItem = { title: string; url: string; kind: string; description?: string; date?: string; source?: string };
 const ABEMA_CATEGORIES: DiscoveredItem[] = [
@@ -270,6 +271,18 @@ export function StatusCatalogPlayer() {
   });
   const [favoriteOnly, setFavoriteOnly] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState("Todas");
+  const [catalogName, setCatalogName] = useState("");
+  const [selectedSavedCatalog, setSelectedSavedCatalog] = useState("");
+  const [savedCatalogs, setSavedCatalogs] = useState<SavedCatalog[]>(() => {
+    try {
+      const saved = window.localStorage.getItem("iptv-doctor-catalog-library-v1");
+      const parsed: unknown = saved ? JSON.parse(saved) : [];
+      return Array.isArray(parsed) ? parsed.filter((item): item is SavedCatalog =>
+        Boolean(item && typeof item.id === "string" && typeof item.name === "string" &&
+          typeof item.savedAt === "string" && Array.isArray(item.channels))
+      ) : [];
+    } catch { return []; }
+  });
   const [catalogUrl, setCatalogUrl] = useState("https://iptv-doctor.onrender.com/status-index.json");
   const [siteUrl, setSiteUrl] = useState("https://abema.tv");
   const [discoveredItems, setDiscoveredItems] = useState<DiscoveredItem[]>(ABEMA_CATEGORIES);
@@ -287,6 +300,37 @@ export function StatusCatalogPlayer() {
   useEffect(() => {
     try { window.localStorage.setItem("iptv-doctor-favorites-v1", JSON.stringify(favoriteUrls)); } catch { /* Storage may be unavailable in private browsing. */ }
   }, [favoriteUrls]);
+  useEffect(() => {
+    try { window.localStorage.setItem("iptv-doctor-catalog-library-v1", JSON.stringify(savedCatalogs)); } catch { /* Browser storage has a finite quota. */ }
+  }, [savedCatalogs]);
+
+  function saveCurrentCatalog(): void {
+    const name = catalogName.trim();
+    if (!name) { setMessage("Escribe un nombre para guardar este catálogo."); return; }
+    if (!channels.length) { setMessage("Carga primero un catálogo con enlaces reproducibles."); return; }
+    const id = `${Date.now()}-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 24)}`;
+    const snapshot: SavedCatalog = { id, name, savedAt: new Date().toISOString(), channels: channels.slice(0, 5000) };
+    setSavedCatalogs((current) => [snapshot, ...current.filter((item) => item.name.toLowerCase() !== name.toLowerCase())].slice(0, 10));
+    setSelectedSavedCatalog(id);
+    setMessage(`Catálogo “${name}” guardado en este navegador con ${snapshot.channels.length} enlaces${channels.length > snapshot.channels.length ? " (límite de 5.000 entradas por catálogo guardado)" : ""}.`);
+  }
+
+  function loadSavedCatalog(id: string): void {
+    const saved = savedCatalogs.find((item) => item.id === id);
+    if (!saved) return;
+    setChannels(saved.channels);
+    setWebSources([]);
+    setSelectedUrl(saved.channels[0]?.url ?? "");
+    setPlaying(false);
+    setMessage(`Catálogo “${saved.name}” cargado: ${saved.channels.length} enlaces.`);
+  }
+
+  function deleteSavedCatalog(): void {
+    if (!selectedSavedCatalog) return;
+    setSavedCatalogs((current) => current.filter((item) => item.id !== selectedSavedCatalog));
+    setSelectedSavedCatalog("");
+    setMessage("Catálogo guardado eliminado de este navegador.");
+  }
   useEffect(() => () => { hlsRef.current?.destroy(); }, []);
 
   function toggleFavorite(url: string): void {
@@ -492,6 +536,29 @@ export function StatusCatalogPlayer() {
       </div>
       <p className="diagnostic-note">También puedes pegar una URL directa de vídeo/audio o la URL de un catálogo público. Si solo contiene nombres y urlHost (webs), no habrá emisiones que reproducir: necesitas enlaces directos. El lector remoto respeta los límites de seguridad y puede rechazar redirecciones entre dominios.</p>
       {message ? <p role="status" className="player-message">{message}</p> : null}
+      <div className="saved-catalogs">
+        <div>
+          <p className="eyebrow">Biblioteca local</p>
+          <h3>Guardar y separar catálogos</h3>
+          <p className="diagnostic-note">Los catálogos guardados permanecen en este navegador, no en el servidor. Se guardan hasta 10 catálogos con un máximo de 5.000 enlaces cada uno.</p>
+        </div>
+        <div className="saved-catalog-controls">
+          <label>Nombre del catálogo
+            <input type="text" value={catalogName} onChange={(event) => setCatalogName(event.target.value)} placeholder="Ej. Noticias, deportes, mis listas" maxLength={80} />
+          </label>
+          <button type="button" disabled={!channels.length} onClick={saveCurrentCatalog}>Guardar catálogo actual</button>
+        </div>
+        {savedCatalogs.length ? <div className="saved-catalog-controls">
+          <label>Catálogos guardados ({savedCatalogs.length})
+            <select value={selectedSavedCatalog} onChange={(event) => setSelectedSavedCatalog(event.target.value)}>
+              <option value="">Selecciona un catálogo guardado</option>
+              {savedCatalogs.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.channels.length} enlaces</option>)}
+            </select>
+          </label>
+          <button type="button" disabled={!selectedSavedCatalog} onClick={() => loadSavedCatalog(selectedSavedCatalog)}>Cargar guardado</button>
+          <button type="button" className="secondary-action" disabled={!selectedSavedCatalog} onClick={deleteSavedCatalog}>Eliminar guardado</button>
+        </div> : null}
+      </div>
       <div className="site-discovery">
         <p className="eyebrow">Website & event discovery</p>
         <h3>Explorador de géneros, programas y eventos</h3>
