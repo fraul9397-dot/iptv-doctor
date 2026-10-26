@@ -3,7 +3,7 @@ import { parseM3U } from "iptv-doctor-core";
 
 type CatalogChannel = { name: string; url: string; country?: string; category?: string };
 type WebSource = { name: string; country?: string; category?: string; status?: string; latencyMs?: number; url: string };
-type DiscoveredItem = { title: string; url: string; kind: "categoría" | "programa" | "evento" | "vídeo"; description?: string; date?: string };
+type DiscoveredItem = { title: string; url: string; kind: string; description?: string; date?: string; source?: string };
 const ABEMA_CATEGORIES: DiscoveredItem[] = [
   { title: "En directo / canales", url: "https://abema.tv/now-on-air", kind: "categoría", description: "Canales lineales y emisiones disponibles en ABEMA" },
   { title: "Deportes", url: "https://abema.tv/video/genre/sports", kind: "categoría", description: "Deportes, partidos y programas deportivos" },
@@ -295,26 +295,28 @@ export function StatusCatalogPlayer() {
     let base: URL;
     try { base = new URL(siteUrl.trim()); } catch { setSiteMessage("Introduce una URL completa, por ejemplo https://abema.tv"); return; }
     if (base.protocol !== "https:" && base.protocol !== "http:") { setSiteMessage("Solo se admiten webs HTTP/HTTPS."); return; }
-    if (["localhost", "127.0.0.1", "::1"].includes(base.hostname) || /^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.)/.test(base.hostname)) {
-      setSiteMessage("Por seguridad, el explorador solo admite sitios públicos, no direcciones locales o privadas.");
-      return;
-    }
     setBusy(true);
-    setSiteMessage("Buscando categorías, programas y eventos publicados en la web…");
+    setSiteMessage("Explorando páginas públicas, categorías, programas y eventos…");
     try {
-      const response = await fetch(base.toString(), { headers: { Accept: "text/html,application/xhtml+xml" } });
-      if (!response.ok) throw new Error("HTTP " + response.status);
-      const html = await response.text();
-      const items = discoverPageItems(html, base.toString());
+      const endpoint = new URL("https://iptv-doctor-public-catalog.onrender.com/api/discover");
+      endpoint.searchParams.set("url", base.toString());
+      const response = await fetch(endpoint.toString(), { headers: { Accept: "application/json" } });
+      const result = await response.json() as { error?: string; items?: Array<{ title?: string; url?: string; kind?: string; description?: string; date?: string; source?: string }>; pagesScanned?: number; pages?: Array<{ url?: string; error?: string }> };
+      if (!response.ok) throw new Error(result.error || "HTTP " + response.status);
+      const items: DiscoveredItem[] = (result.items ?? []).filter((item) => typeof item.title === "string" && typeof item.url === "string").map((item) => ({
+        title: item.title as string, url: item.url as string, kind: item.kind || "enlace público",
+        description: item.description, date: item.date, source: item.source
+      }));
       const isAbema = base.hostname === "abema.tv" || base.hostname.endsWith(".abema.tv");
       const merged = [...items, ...(isAbema ? ABEMA_CATEGORIES : [])];
       const unique = [...new Map(merged.map((item) => [item.url, item])).values()];
       setDiscoveredItems(unique);
-      setSiteMessage("Encontrados " + items.length + " enlaces públicos" + (isAbema ? " y accesos oficiales de géneros de ABEMA" : "") + ". La cantidad depende de los metadatos publicados por la web.");
+      const pageErrors = (result.pages ?? []).filter((page) => page.error);
+      setSiteMessage("Exploración completada: " + (result.pagesScanned ?? 0) + " páginas examinadas y " + items.length + " elementos detectados." + (pageErrors.length ? " Algunas páginas no se pudieron leer." : "") + (isAbema ? " Se añaden accesos de géneros oficiales de ABEMA." : ""));
     } catch (error) {
       const isAbema = base.hostname === "abema.tv" || base.hostname.endsWith(".abema.tv");
       setDiscoveredItems(isAbema ? ABEMA_CATEGORIES : []);
-      setSiteMessage((error instanceof Error ? error.message : String(error)) + ". El navegador no pudo leer el HTML, normalmente por CORS o protección anti-bots. " + (isAbema ? "Se muestran los accesos oficiales conocidos para abrirlos en ABEMA." : "Esta web necesita una API/conector autorizado para una extracción completa."));
+      setSiteMessage((error instanceof Error ? error.message : String(error)) + ". Comprueba que el servicio de descubrimiento haya terminado de desplegarse. Solo se leen metadatos públicos; no se accede a APIs privadas ni se evita DRM.");
     } finally { setBusy(false); }
   }
 
