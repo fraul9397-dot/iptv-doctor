@@ -108,7 +108,7 @@ function extractScriptUrls(html, pageUrl) {
   const urls = [];
   const seen = new Set();
   const patterns = [
-    /["']((?:https?:)?[/][/][^"'\s<>]+|/(?:video|genre|now-on-air|timetable|program|channel|sports|anime|news|drama|movie|event)[^"'\s<>]*)["']/gi,
+    /["']((?:https?:)?[/][/][^"'\s<>]+|[/](?:video|genre|now-on-air|timetable|program|channel|sports|anime|news|drama|movie|event)[^"'\s<>]*)["']/gi,
     /(?:href|url|canonical|permalink)\s*[:=]\s*["']([^"'<>]{3,500})["']/gi
   ];
   for (const pattern of patterns) {
