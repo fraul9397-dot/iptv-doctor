@@ -10,7 +10,8 @@ export type DiagnosticCode =
   | "FAIL_HTTP"
   | "FAIL_MANIFEST"
   | "FAIL_TIMEOUT"
-  | "FAIL_UNSUPPORTED";
+  | "FAIL_UNSUPPORTED"
+  | "FAIL_NETWORK_OR_CORS";
 
 export interface ProbeOptions {
   timeoutMs?: number;
@@ -273,7 +274,8 @@ function classifyFetchError(error: unknown): DiagnosticCode {
   if (message.includes("segment sample failed")) return "FAIL_MANIFEST";
   if (message.includes("dns") || message.includes("enotfound") || message.includes("getaddrinfo")) return "FAIL_DNS";
   if (message.includes("tls") || message.includes("certificate") || message.includes("ssl")) return "FAIL_TLS";
-  return "FAIL_TLS";
+  if (message.includes("failed to fetch") || message.includes("networkerror") || message.includes("network error") || message.includes("load failed") || message.includes("fetch failed")) return "FAIL_NETWORK_OR_CORS";
+  return "FAIL_NETWORK_OR_CORS";
 }
 
 function csvCell(value: unknown): string {
