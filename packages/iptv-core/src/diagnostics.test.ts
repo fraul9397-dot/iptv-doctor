@@ -77,6 +77,33 @@ segments/segment-1.ts`)
     });
   });
 
+  it("follows a master playlist into a variant before sampling a media segment", async () => {
+    const requested: string[] = [];
+    const fetchImpl = async (url: string | URL | Request) => {
+      const value = String(url);
+      requested.push(value);
+      if (value.endsWith("/master.m3u8")) {
+        return response("#EXTM3U\\n#EXT-X-STREAM-INF:BANDWIDTH=800000\\nvariants/low.m3u8");
+      }
+      if (value.endsWith("/variants/low.m3u8")) {
+        return response("#EXTM3U\\n#EXTINF:6,\\nsegments/one.ts");
+      }
+      return response("segment-bytes", { contentType: "video/mp2t" });
+    };
+
+    const diagnostic = await probeChannel(
+      { name: "Master stream", url: "https://example.com/live/master.m3u8" },
+      { fetchImpl, clock: async () => 120 }
+    );
+
+    expect(requested).toEqual([
+      "https://example.com/live/master.m3u8",
+      "https://example.com/live/variants/low.m3u8",
+      "https://example.com/live/variants/segments/one.ts"
+    ]);
+    expect(diagnostic).toMatchObject({ status: "ok", sampledSegments: 1 });
+  });
+
   it("maps failed HLS segment samples to manifest failures", async () => {
     const fetchImpl = async (_url: string | URL | Request) =>
       response(`#EXTM3U
