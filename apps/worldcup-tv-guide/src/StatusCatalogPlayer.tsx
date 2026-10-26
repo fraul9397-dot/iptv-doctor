@@ -96,12 +96,12 @@ function parseWebSources(text: string, filename: string): WebSource[] {
       const statusIndex = headers.findIndex((h) => /^(status|state)$/i.test(h));
       const latencyIndex = headers.findIndex((h) => /^(latencyms|latency|ms)$/i.test(h));
       if (hostIndex < 0) return [];
-      return rows.slice(1).map((row) => {
+      return rows.slice(1).flatMap((row): WebSource[] => {
         const cells = csvCells(row); const url = safeUrl(cells[hostIndex]);
-        if (!url) return undefined;
+        if (!url) return [];
         const latency = latencyIndex >= 0 ? Number(cells[latencyIndex]) : NaN;
-        return { name: cells[nameIndex] || new URL(url).hostname, url, country: countryIndex >= 0 ? cells[countryIndex] : undefined, category: categoryIndex >= 0 ? cells[categoryIndex] : undefined, status: statusIndex >= 0 ? cells[statusIndex] : undefined, latencyMs: Number.isFinite(latency) ? latency : undefined };
-      }).filter((item): item is WebSource => Boolean(item));
+        return [{ name: cells[nameIndex] || new URL(url).hostname, url, country: countryIndex >= 0 ? cells[countryIndex] : undefined, category: categoryIndex >= 0 ? cells[categoryIndex] : undefined, status: statusIndex >= 0 ? cells[statusIndex] : undefined, latencyMs: Number.isFinite(latency) ? latency : undefined }];
+      });
     }
     const data: unknown = JSON.parse(text);
     if (!data || typeof data !== "object") return [];
