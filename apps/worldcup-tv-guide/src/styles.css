@@ -149,3 +149,11 @@ h3 { font-size: 17px; }
 .secondary-action, .player-controls .secondary-action { background: #182940; border-color: #334c6a; color: #d9e8fb; }
 .source-open-link { color: var(--accent); font-size: 13px; font-weight: 700; overflow-wrap: anywhere; text-decoration: none; }
 .source-open-link:hover, .discovered-item a:hover, .channel-row a:hover { text-decoration: underline; }
+
+.saved-catalogs { background: rgba(7,13,24,.38); border: 1px solid var(--border); border-radius: 14px; display: grid; gap: 13px; margin-top: 17px; padding: 16px; }
+.saved-catalogs h3 { margin: 0 0 7px; }
+.saved-catalogs p { margin: 0; }
+.saved-catalog-controls { align-items: end; display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr) auto auto; }
+.saved-catalog-controls label { display: grid; gap: 7px; min-width: 0; font-size: 13px; font-weight: 700; }
+.saved-catalog-controls input, .saved-catalog-controls select { background: #091321; border: 1px solid #2b405b; border-radius: 10px; color: var(--text); font: inherit; min-height: 43px; min-width: 0; padding: 10px 12px; width: 100%; }
+@media (max-width: 760px) { .saved-catalog-controls { grid-template-columns: 1fr; } }
