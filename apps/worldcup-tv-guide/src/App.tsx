@@ -4,6 +4,7 @@ import { generateICalendar, generateM3UPlaceholder, generateXMLTV } from "@bjia6
 import { createDiagnosticsSummary, probePlaylist, renderCsvReport, renderJsonReport, type ChannelDiagnostic } from "iptv-doctor-core";
 import { getWorldCup2026Dataset } from "iptv-sports-data";
 import { summarizeLocalPlaylist, type LocalPlaylistSummary } from "./localPlaylist";
+import { StatusCatalogPlayer } from "./StatusCatalogPlayer";
 
 const dataset = getWorldCup2026Dataset();
 const usChannels = dataset.broadcasters.US?.channels ?? [];
@@ -203,6 +204,8 @@ export function App() {
           </div>
         </div>
       </section>
+
+      <StatusCatalogPlayer />
 
       <section className="panel local-panel">
         <h2>Analizador local de listas M3U / M3U8</h2>
