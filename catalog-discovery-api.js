@@ -221,7 +221,7 @@ const server = createServer(async (req, res) => {
   if (req.method !== "GET") { res.writeHead(405); return res.end(JSON.stringify({ error: "Método no permitido." })); }
   const requestUrl = new URL(req.url || "/", "http://localhost");
   if (requestUrl.pathname === "/health") { res.writeHead(200); return res.end(JSON.stringify({ ok: true, service: "iptv-doctor-public-discovery" })); }
-  if (requestUrl.pathname !== "/api/discover" && requestUrl.pathname !== "/api/catalog") { res.writeHead(404); return res.end(JSON.stringify({ error: "Ruta no encontrada." })); }
+  if (requestUrl.pathname !== "/api/discover" && requestUrl.pathname !== "/api/catalog" && requestUrl.pathname !== "/api/probe") { res.writeHead(404); return res.end(JSON.stringify({ error: "Ruta no encontrada." })); }
   let start;
   try { start = new URL(requestUrl.searchParams.get("url") || ""); await assertPublicHost(start); }
   catch (error) { res.writeHead(400); return res.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) })); }
@@ -234,6 +234,58 @@ const server = createServer(async (req, res) => {
       const robotsResponse = await fetch(robotsUrl, { signal: AbortSignal.timeout(3000), headers: { "User-Agent": "IPTV-Doctor-PublicCatalogBot/1.0" } });
       if (robotsResponse.ok) robots = (await robotsResponse.text()).slice(0, 100000);
     } catch {}
+    if (requestUrl.pathname === "/api/probe") {
+      if (!robotsAllows(robots, start.pathname || "/")) {
+        res.writeHead(403);
+        return res.end(JSON.stringify({ error: "La fuente está excluida por robots.txt." }));
+      }
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 7000);
+      try {
+        const response = await fetch(start, {
+          method: "GET",
+          redirect: "manual",
+          signal: controller.signal,
+          headers: { "Range": "bytes=0-1023", "User-Agent": "IPTV-Doctor-PublicCatalogBot/1.0 (+public source diagnostics)", "Accept": "*/*" }
+        });
+        if (response.status >= 300 && response.status < 400) {
+          const location = response.headers.get("location");
+          if (!location) throw new Error("La fuente redirige sin indicar un destino.");
+          const target = new URL(location, start);
+          if (target.hostname !== start.hostname) throw new Error("Redirección a otro dominio bloqueada; prueba la URL final directamente.");
+          await assertPublicHost(target);
+          if (!robotsAllows(robots, target.pathname || "/")) throw new Error("El destino está excluido por robots.txt.");
+          const redirected = await fetch(target, { method: "GET", redirect: "error", signal: controller.signal, headers: { "Range": "bytes=0-1023", "User-Agent": "IPTV-Doctor-PublicCatalogBot/1.0", "Accept": "*/*" } });
+          const result = {
+            requestedUrl: start.href, finalUrl: target.href, status: redirected.status, ok: redirected.ok,
+            contentType: redirected.headers.get("content-type") || "desconocido",
+            contentLength: redirected.headers.get("content-length"),
+            contentRange: redirected.headers.get("content-range"),
+            acceptsRanges: redirected.headers.get("accept-ranges"),
+            note: "Prueba superficial de cabeceras y disponibilidad HTTP; no garantiza que el navegador pueda reproducir el flujo."
+          };
+          try { await redirected.body?.cancel(); } catch {}
+          res.writeHead(200);
+          return res.end(JSON.stringify(result));
+        }
+        const result = {
+          requestedUrl: start.href, finalUrl: start.href, status: response.status, ok: response.ok,
+          contentType: response.headers.get("content-type") || "desconocido",
+          contentLength: response.headers.get("content-length"),
+          contentRange: response.headers.get("content-range"),
+          acceptsRanges: response.headers.get("accept-ranges"),
+          note: "Prueba superficial de cabeceras y disponibilidad HTTP; no garantiza que el navegador pueda reproducir el flujo."
+        };
+        try { await response.body?.cancel(); } catch {}
+        res.writeHead(200);
+        return res.end(JSON.stringify(result));
+      } catch (error) {
+        res.writeHead(502);
+        return res.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error), requestedUrl: start.href }));
+      } finally {
+        clearTimeout(timer);
+      }
+    }
     if (requestUrl.pathname === "/api/catalog") {
       if (!robotsAllows(robots, start.pathname || "/")) {
         res.writeHead(403);
