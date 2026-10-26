@@ -193,7 +193,7 @@ const server = createServer(async (req, res) => {
   if (req.method !== "GET") { res.writeHead(405); return res.end(JSON.stringify({ error: "Método no permitido." })); }
   const requestUrl = new URL(req.url || "/", "http://localhost");
   if (requestUrl.pathname === "/health") { res.writeHead(200); return res.end(JSON.stringify({ ok: true, service: "iptv-doctor-public-discovery" })); }
-  if (requestUrl.pathname !== "/api/discover") { res.writeHead(404); return res.end(JSON.stringify({ error: "Ruta no encontrada." })); }
+  if (requestUrl.pathname !== "/api/discover" && requestUrl.pathname !== "/api/catalog") { res.writeHead(404); return res.end(JSON.stringify({ error: "Ruta no encontrada." })); }
   let start;
   try { start = new URL(requestUrl.searchParams.get("url") || ""); await assertPublicHost(start); }
   catch (error) { res.writeHead(400); return res.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) })); }
@@ -206,6 +206,45 @@ const server = createServer(async (req, res) => {
       const robotsResponse = await fetch(robotsUrl, { signal: AbortSignal.timeout(3000), headers: { "User-Agent": "IPTV-Doctor-PublicCatalogBot/1.0" } });
       if (robotsResponse.ok) robots = (await robotsResponse.text()).slice(0, 100000);
     } catch {}
+    if (requestUrl.pathname === "/api/catalog") {
+      if (!robotsAllows(robots, start.pathname || "/")) {
+        res.writeHead(403);
+        return res.end(JSON.stringify({ error: "La URL del catálogo está excluida por robots.txt." }));
+      }
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10000);
+      try {
+        const response = await fetch(start, {
+          redirect: "manual",
+          signal: controller.signal,
+          headers: { "User-Agent": "IPTV-Doctor-PublicCatalogBot/1.0 (+public catalog reader)", Accept: "application/json,text/csv,audio/x-mpegurl,application/x-mpegURL,text/plain,application/octet-stream,*/*" }
+        });
+        if (response.status >= 300 && response.status < 400) {
+          const location = response.headers.get("location");
+          if (!location) throw new Error("Redirección del catálogo sin destino.");
+          const target = new URL(location, start);
+          if (target.hostname !== start.hostname) throw new Error("Redirección a otro dominio bloqueada por seguridad; usa la URL final del catálogo.");
+          await assertPublicHost(target);
+          if (!robotsAllows(robots, target.pathname || "/")) throw new Error("El destino está excluido por robots.txt.");
+          const redirected = await fetch(target, { redirect: "error", signal: controller.signal, headers: { "User-Agent": "IPTV-Doctor-PublicCatalogBot/1.0", Accept: "application/json,text/csv,audio/x-mpegurl,text/plain,*/*" } });
+          if (!redirected.ok) throw new Error("HTTP " + redirected.status);
+          const body = await redirected.text();
+          if (Buffer.byteLength(body, "utf8") > MAX_BYTES) throw new Error("El catálogo supera el límite de 2 MB.");
+          res.writeHead(200);
+          return res.end(JSON.stringify({ content: body, contentType: redirected.headers.get("content-type") || "", filename: target.pathname.split("/").pop() || "catalog.txt" }));
+        }
+        if (!response.ok) throw new Error("HTTP " + response.status);
+        const body = await response.text();
+        if (Buffer.byteLength(body, "utf8") > MAX_BYTES) throw new Error("El catálogo supera el límite de 2 MB.");
+        res.writeHead(200);
+        return res.end(JSON.stringify({ content: body, contentType: response.headers.get("content-type") || "", filename: start.pathname.split("/").pop() || "catalog.txt" }));
+      } catch (error) {
+        res.writeHead(502);
+        return res.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
+      } finally {
+        clearTimeout(timer);
+      }
+    }
     const queue = [start];
     // ABEMA is a JavaScript-heavy SPA, so seed known public category pages instead of relying on homepage anchors.
     if (start.hostname === "abema.tv" || start.hostname.endsWith(".abema.tv")) {
