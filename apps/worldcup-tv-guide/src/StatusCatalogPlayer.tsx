@@ -78,7 +78,8 @@ function parseWebSources(text: string, filename: string): WebSource[] {
   const ext = filename.toLowerCase().split(".").pop();
   const safeUrl = (value: unknown): string | undefined => {
     if (typeof value !== "string" || !value.trim()) return undefined;
-    const candidate = /^https?:\/\//i.test(value) ? value : \`https://\${value}\`;\n    try {
+    const candidate = /^https?:\/\//i.test(value) ? value : "https://" + value;
+    try {
       const parsed = new URL(candidate);
       return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.toString() : undefined;
     } catch { return undefined; }
