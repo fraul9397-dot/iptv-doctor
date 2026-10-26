@@ -284,7 +284,7 @@ export function StatusCatalogPlayer() {
       ) : [];
     } catch { return []; }
   });
-  const [catalogUrl, setCatalogUrl] = useState("https://www.tdtchannels.com/lists/tv.m3u8");
+  const [catalogUrl, setCatalogUrl] = useState("https://iptv-org.github.io/iptv/categories/sports.m3u");
   const [siteUrl, setSiteUrl] = useState("https://abema.tv");
   const [discoveredItems, setDiscoveredItems] = useState<DiscoveredItem[]>(ABEMA_CATEGORIES);
   const [siteMessage, setSiteMessage] = useState("ABEMA: géneros oficiales precargados. Pulsa «Buscar contenidos públicos» para intentar leer los programas y eventos que la web publique.");
@@ -535,10 +535,9 @@ export function StatusCatalogPlayer() {
       <p>Admite catálogos M3U/M3U8, JSON y CSV; reproduce HLS (.m3u8), DASH (.mpd), MP4, WebM y audio compatible. Busca por canal, filtra categorías y guarda favoritos en este navegador. Las fuentes deben ser públicas o estar autorizadas; no se elude DRM ni autenticación.</p>
       <input aria-label="Importar catálogo JSON CSV M3U" type="file" accept=".json,.csv,.m3u,.m3u8,application/json,text/csv,audio/x-mpegurl" onChange={(event) => void loadFile(event.target.files?.[0])} />
       <div className="playlist-presets">
-        <p><strong>Listas públicas para reproducir</strong> · fuentes de TV/radio en abierto de TDTChannels. No incluyen canales de pago como Movistar o DAZN.</p>
+        <p><strong>Lista deportiva pública</strong> · catálogo comunitario de canales de deportes en abierto. La disponibilidad y los derechos pueden variar por canal; no incluye acceso autorizado a servicios de pago.</p>
         <div className="playlist-preset-actions">
-          <button type="button" disabled={busy} onClick={() => void loadRemoteCatalog("https://www.tdtchannels.com/lists/tv.m3u8")}>Cargar TV en abierto (M3U)</button>
-          <button type="button" disabled={busy} onClick={() => void loadRemoteCatalog("https://www.tdtchannels.com/lists/radio.m3u8")}>Cargar radio (M3U)</button>
+          <button type="button" disabled={busy} onClick={() => void loadRemoteCatalog("https://iptv-org.github.io/iptv/categories/sports.m3u")}>Cargar deportes (M3U)</button>
         </div>
       </div>
       <div className="remote-catalog-controls">
