@@ -289,6 +289,7 @@ export function StatusCatalogPlayer() {
   const [siteMessage, setSiteMessage] = useState("ABEMA: géneros oficiales precargados. Pulsa «Buscar contenidos públicos» para intentar leer los programas y eventos que la web publique.");
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<InstanceType<HlsConstructor> | undefined>(undefined);
+  const dashRef = useRef<DashPlayer | undefined>(undefined);
 
   const categories = useMemo(() => ["Todas", ...new Set(channels.map((channel) => channel.category?.trim()).filter((value): value is string => Boolean(value)))].sort((a, b) => a === "Todas" ? -1 : b === "Todas" ? 1 : a.localeCompare(b)), [channels]);
   const visible = useMemo(() => channels.filter((channel) =>
@@ -331,7 +332,7 @@ export function StatusCatalogPlayer() {
     setSelectedSavedCatalog("");
     setMessage("Catálogo guardado eliminado de este navegador.");
   }
-  useEffect(() => () => { hlsRef.current?.destroy(); }, []);
+  useEffect(() => () => { hlsRef.current?.destroy(); dashRef.current?.reset(); }, []);
 
   function toggleFavorite(url: string): void {
     setFavoriteUrls((current) => current.includes(url) ? current.filter((item) => item !== url) : [...current, url]);
@@ -465,6 +466,8 @@ export function StatusCatalogPlayer() {
     setMessage("Preparando reproducción…");
     hlsRef.current?.destroy();
     hlsRef.current = undefined;
+    dashRef.current?.reset();
+    dashRef.current = undefined;
     video.pause();
     video.removeAttribute("src");
     video.load();
@@ -474,6 +477,7 @@ export function StatusCatalogPlayer() {
         await loadDashJs();
         if (!window.dashjs) throw new Error("El reproductor DASH no está disponible.");
         const dash = window.dashjs.MediaPlayer().create();
+        dashRef.current = dash;
         dash.on("error", (event) => {
           setPlaying(false);
           setMessage(`Error DASH${event.error?.code ? " " + event.error.code : ""}: ${event.error?.message || "no se pudo cargar el manifiesto o sus segmentos"}. Comprueba CORS, disponibilidad y permisos de la fuente.`);
