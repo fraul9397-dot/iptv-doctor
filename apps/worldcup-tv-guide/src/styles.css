@@ -145,3 +145,7 @@ h3 { font-size: 17px; }
   .web-source-meta { justify-content: flex-start; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; } }
+
+.secondary-action, .player-controls .secondary-action { background: #182940; border-color: #334c6a; color: #d9e8fb; }
+.source-open-link { color: var(--accent); font-size: 13px; font-weight: 700; overflow-wrap: anywhere; text-decoration: none; }
+.source-open-link:hover, .discovered-item a:hover, .channel-row a:hover { text-decoration: underline; }
