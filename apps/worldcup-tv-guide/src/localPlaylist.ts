@@ -4,6 +4,7 @@ export interface LocalPlaylistSummary {
   total: number;
   groups: Array<{ group: string; count: number }>;
   channels: string[];
+  probeChannels: M3UChannel[];
   duplicateUrls: number;
   invalidUrls: number;
   missingNames: number;
@@ -75,6 +76,7 @@ export function summarizeLocalPlaylist(input: string): LocalPlaylistSummary {
       .map(([group, count]) => ({ group, count }))
       .sort((left, right) => left.group.localeCompare(right.group)),
     channels: parsed.channels.map((channel) => channel.name),
+    probeChannels: uniqueValidChannels,
     duplicateUrls,
     invalidUrls,
     missingNames,
