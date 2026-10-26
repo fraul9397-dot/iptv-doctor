@@ -66,6 +66,7 @@ const seeds: Seed[] = [
   ["uefa-tv.global", "UEFA.tv", "GLOBAL", "Multilingual", ["Football", "Highlights", "Selected live events"], "https://www.uefa.tv/"],
   ["barca-one.es", "Barça One", "ES", "Catalan/Spanish", ["FC Barcelona", "Club content", "Selected live events"], "https://barcaone.fcbarcelona.com/"],
   ["real-madrid-tv.es", "Real Madrid TV", "ES", "Spanish", ["Club channel", "Football", "Press conferences"], "https://www.realmadrid.com/en-US/real-madrid-tv"],
+  ["fiba-basketball.global", "FIBA Basketball", "GLOBAL", "Multilingual", ["Basketball", "National teams", "Official highlights"], "https://www.fiba.basketball/"],
   ["rtve-deportes.es", "RTVE Deportes", "ES", "Spanish", ["Football", "Cycling", "Olympic sports"], "https://www.rtve.es/deportes/"],
   ["marca.es", "MARCA", "ES", "Spanish", ["Football", "Basketball", "Motorsport"], "https://www.marca.com/"],
   ["as.es", "AS", "ES", "Spanish", ["Football", "Tennis", "Cycling"], "https://as.com/"],
