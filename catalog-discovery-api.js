@@ -89,7 +89,7 @@ async function safeFetch(url, robotsText) {
 
 function extractSitemapUrls(xml, baseUrl) {
   const urls = [];
-  const re = /<loc>\\s*([\\s\\S]*?)\\s*<\\/loc>/gi;
+  const re = /<loc>\s*([\s\S]*?)\s*<[/]loc>/gi;
   let match;
   while ((match = re.exec(xml)) !== null && urls.length < 500) {
     const raw = decode(match[1]).trim();
@@ -108,14 +108,14 @@ function extractScriptUrls(html, pageUrl) {
   const urls = [];
   const seen = new Set();
   const patterns = [
-    /["']((?:https?:)?\\/\\/[^"'\\s<>]+|\\/(?:video|genre|now-on-air|timetable|program|channel|sports|anime|news|drama|movie|event)[^"'\\s<>]*)["']/gi,
-    /(?:href|url|canonical|permalink)\\s*[:=]\\s*["']([^"'<>]{3,500})["']/gi
+    /["']((?:https?:)?[/][/][^"'\s<>]+|/(?:video|genre|now-on-air|timetable|program|channel|sports|anime|news|drama|movie|event)[^"'\s<>]*)["']/gi,
+    /(?:href|url|canonical|permalink)\s*[:=]\s*["']([^"'<>]{3,500})["']/gi
   ];
   for (const pattern of patterns) {
     let match;
     while ((match = pattern.exec(html)) !== null && urls.length < 500) {
       try {
-        const raw = match[1].replace(/\\\\u002F/g, "/").replace(/\\\\\\//g, "/").replace(/\\\\u0026/g, "&");
+        const raw = match[1].replace(/\\u002F/g, "/").replace(/\\\//g, "/").replace(/\\u0026/g, "&");
         const url = new URL(raw.startsWith("//") ? pageUrl.protocol + raw : raw, pageUrl);
         if (url.hostname !== pageUrl.hostname || !["http:", "https:"].includes(url.protocol)) continue;
         url.hash = "";
