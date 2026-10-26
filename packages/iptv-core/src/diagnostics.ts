@@ -242,20 +242,44 @@ async function sampleMediaSegments(
   manifestUrl: string,
   fetchImpl: typeof fetch,
   timeoutMs: number,
-  sampleSegments: number
+  sampleSegments: number,
+  depth = 0
 ): Promise<number> {
-  if (sampleSegments <= 0) return 0;
+  if (sampleSegments <= 0 || depth > 2) return 0;
 
-  const segments = findMediaSegments(body).slice(0, sampleSegments);
+  const entries = findMediaSegments(body).slice(0, Math.max(sampleSegments, 1));
   let sampled = 0;
 
-  for (const segment of segments) {
-    const segmentUrl = new URL(segment, manifestUrl).toString();
-    const response = await withTimeout(() => fetchImpl(segmentUrl), timeoutMs);
+  for (const entry of entries) {
+    const entryUrl = new URL(entry, manifestUrl).toString();
+    const response = await withTimeout(() => fetchImpl(entryUrl), timeoutMs);
     if (!response.ok) {
       throw new Error(`Segment sample failed with HTTP ${response.status}`);
     }
-    sampled += 1;
+
+    const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+    const looksLikePlaylist = /\.m3u8?(?:$|[?#])/i.test(entryUrl)
+      || contentType.includes("mpegurl")
+      || contentType.includes("x-mpegurl");
+
+    if (looksLikePlaylist) {
+      const nestedBody = await response.text();
+      if (!isHlsManifest(nestedBody, entryUrl)) {
+        throw new Error("Nested HLS variant is not a readable manifest.");
+      }
+      sampled += await sampleMediaSegments(
+        nestedBody,
+        entryUrl,
+        fetchImpl,
+        timeoutMs,
+        sampleSegments - sampled,
+        depth + 1
+      );
+    } else {
+      sampled += 1;
+    }
+
+    if (sampled >= sampleSegments) break;
   }
 
   return sampled;
