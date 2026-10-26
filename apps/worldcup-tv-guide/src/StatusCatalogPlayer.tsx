@@ -84,23 +84,40 @@ function csvCells(line: string): string[] {
   return result;
 }
 
-function isDirectHls(value: string): boolean {
+function mediaKind(value: string): "hls" | "file" | undefined {
   try {
     const parsed = new URL(value);
-    return ["https:", "http:"].includes(parsed.protocol) && /\.m3u8$/i.test(parsed.pathname);
-  } catch { return false; }
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return undefined;
+    const path = parsed.pathname.toLowerCase();
+    if (/\.m3u8$/i.test(path) || /\.m3u8\//i.test(path)) return "hls";
+    if (/\.(mp4|m4v|webm|ogv|ogg|mp3|m4a|aac|wav)$/i.test(path)) return "file";
+    return undefined;
+  } catch { return undefined; }
+}
+
+function isPlayableMedia(value: string): boolean {
+  return mediaKind(value) !== undefined;
+}
+
+function isDirectHls(value: string): boolean {
+  return mediaKind(value) === "hls";
+}
+
+function extractMediaUrls(value: string): string[] {
+  const pattern = /https?:\/\/[^\s"'<>\\]+/gi;
+  return (value.match(pattern) ?? []).map((url) => url.replace(/[),.;\]}]+$/, "")).filter(isPlayableMedia);
 }
 
 function fromJson(data: unknown): CatalogChannel[] {
   const found: CatalogChannel[] = [];
   const seen = new Set<object>();
-  const urlPattern = /https?:\/\/[^\s"'<>\\]+?\.m3u8(?:\?[^\s"'<>\\]*)?/gi;
+  const urlPattern = /https?:\/\/[^\s"'<>\\]+/gi;
   function walk(value: unknown, context: { name?: string; country?: string; category?: string } = {}): void {
     if (typeof value === "string") {
       if (!/url|stream|source|manifest|hls|m3u8|link/i.test(context.name ?? "")) {
         for (const match of value.match(urlPattern) ?? []) {
           const url = match.replace(/[),.;\]}]+$/, "");
-          if (isDirectHls(url)) found.push({ name: context.name || "Canal HLS", url, country: context.country, category: context.category });
+          if (isPlayableMedia(url)) found.push({ name: context.name || "Canal", url, country: context.country, category: context.category });
         }
       }
       return;
@@ -118,7 +135,7 @@ function fromJson(data: unknown): CatalogChannel[] {
       if (typeof child === "string" && /url|stream|source|manifest|hls|m3u8|link/i.test(key)) {
         for (const match of child.match(urlPattern) ?? []) {
           const url = match.replace(/[),.;\]}]+$/, "");
-          if (isDirectHls(url)) found.push({ name: next.name || "Canal HLS", url, country: next.country, category: next.category });
+          if (isPlayableMedia(url)) found.push({ name: next.name || "Canal", url, country: next.country, category: next.category });
         }
       } else if (child && typeof child === "object") walk(child, next);
     }
@@ -173,7 +190,7 @@ function parseWebSources(text: string, filename: string): WebSource[] {
 function parseCatalog(text: string, filename: string): CatalogChannel[] {
   const ext = filename.toLowerCase().split(".").pop();
   if (ext === "m3u" || ext === "m3u8" || text.trimStart().startsWith("#EXTM3U")) {
-    return parseM3U(text).filter((channel) => isDirectHls(channel.url)).map((channel) => ({ name: channel.name, url: channel.url, category: channel.groupTitle }));
+    return parseM3U(text).filter((channel) => isPlayableMedia(channel.url)).map((channel) => ({ name: channel.name, url: channel.url, category: channel.groupTitle }));
   }
   if (ext === "csv") {
     const rows = text.replace(/^\uFEFF/, "").split(/\r?\n/).filter(Boolean);
@@ -188,10 +205,10 @@ function parseCatalog(text: string, filename: string): CatalogChannel[] {
       const cells = csvCells(row);
       for (const index of urlIndexes) {
         const raw = cells[index] ?? "";
-        const matches = raw.match(/https?:\/\/[^\s"'<>\\]+?\.m3u8(?:\?[^\s"'<>\\]*)?/gi) ?? [];
+        const matches = extractMediaUrls(raw);
         for (const match of matches) {
           const url = match.replace(/[),.;\]}]+$/, "");
-          if (isDirectHls(url)) found.push({ name: cells[nameIndex] || "Canal HLS", url, country: countryIndex >= 0 ? cells[countryIndex] : undefined, category: categoryIndex >= 0 ? cells[categoryIndex] : undefined });
+          if (isPlayableMedia(url)) found.push({ name: cells[nameIndex] || "Canal", url, country: countryIndex >= 0 ? cells[countryIndex] : undefined, category: categoryIndex >= 0 ? cells[categoryIndex] : undefined });
         }
       }
     }
@@ -252,7 +269,7 @@ export function StatusCatalogPlayer() {
         ? `Importados ${unique.length} enlaces .m3u8 directos de “${file.name}”.`
         : sources.length
           ? `Catálogo leído: ${sources.length} webs detectadas. No contiene manifiestos HLS directos; puedes abrir las webs oficiales en la lista inferior.`
-          : "El archivo se ha leído, pero no contiene URL directas .m3u8 ni dominios reconocibles.");
+          : "El archivo se ha leído, pero no contiene enlaces directos compatibles (.m3u8, .mp4, .webm o audio). Las páginas web no son emisiones reproducibles.");
     } catch (error) {
       setChannels([]);
       setWebSources([]);
@@ -332,11 +349,20 @@ export function StatusCatalogPlayer() {
     video.removeAttribute("src");
     video.load();
     try {
+      const kind = mediaKind(selectedUrl);
+      if (kind === "file") {
+        video.src = selectedUrl;
+        await video.play();
+        setPlaying(true);
+        setMessage("Reproducción iniciada.");
+        return;
+      }
+      if (kind !== "hls") throw new Error("Formato de vídeo no reconocido. Usa un enlace HLS .m3u8 o un archivo MP4/WebM/audio directo.");
       if (video.canPlayType("application/vnd.apple.mpegurl")) {
         video.src = selectedUrl;
         await video.play();
         setPlaying(true);
-        setMessage("Reproducción iniciada. Si falla, el servidor puede exigir autorización o bloquear esta conexión.");
+        setMessage("Reproducción HLS iniciada.");
         return;
       }
       await loadHlsJs();
@@ -355,7 +381,7 @@ export function StatusCatalogPlayer() {
       instance.loadSource(selectedUrl);
       instance.attachMedia(video);
       video.onplaying = () => { setPlaying(true); setMessage("Reproducción iniciada."); };
-      video.onerror = () => { setPlaying(false); setMessage("El navegador no pudo reproducir este manifiesto. Puede requerir permisos, CORS o un formato compatible."); };
+      video.onerror = () => { setPlaying(false); setMessage("El navegador no pudo reproducir esta fuente. Puede requerir permisos, CORS o un formato compatible."); };
       setMessage("Cargando manifiesto HLS…");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
@@ -366,15 +392,15 @@ export function StatusCatalogPlayer() {
     <section className="panel local-panel player-panel">
       <p className="eyebrow">HLS catalogue player</p>
       <h2>Importar catálogo y reproducir</h2>
-      <p>Admite archivos M3U/M3U8, JSON y CSV. Detecta enlaces directos a manifiestos HLS y permite elegir un canal. No convierte nombres de dominio en enlaces de vídeo ni evita CORS, autenticación o DRM.</p>
+      <p>Admite archivos M3U/M3U8, JSON y CSV. Detecta enlaces directos HLS (.m3u8), MP4, WebM y audio compatibles, permite buscar canales y reproducirlos aquí. No convierte webs en emisiones ni evita autenticación o DRM.</p>
       <input aria-label="Importar catálogo JSON CSV M3U" type="file" accept=".json,.csv,.m3u,.m3u8,application/json,text/csv,audio/x-mpegurl" onChange={(event) => void loadFile(event.target.files?.[0])} />
       <div className="remote-catalog-controls">
         <label>O cargar catálogo desde una URL pública
-          <input type="url" value={catalogUrl} onChange={(event) => setCatalogUrl(event.target.value)} placeholder="https://ejemplo.com/catalogo.json" />
+          <input type="url" value={catalogUrl} onChange={(event) => setCatalogUrl(event.target.value)} placeholder="URL de catálogo M3U, M3U8, JSON o CSV" />
         </label>
         <button disabled={busy || !catalogUrl.trim()} onClick={() => void loadRemoteCatalog()}>{busy ? "Cargando catálogo…" : "Leer catálogo remoto"}</button>
       </div>
-      <p className="diagnostic-note">También puedes importar los archivos JSON/CSV del índice de estado. Si solo contienen nombres y urlHost, no habrá enlaces reproducibles que extraer: será necesario un catálogo que publique las URL de vídeo.</p>
+      <p className="diagnostic-note">También puedes pegar la URL de un archivo de catálogo público. Si solo contiene nombres y urlHost (webs), no habrá emisiones que reproducir: necesitas un catálogo con URL directas de vídeo. El servidor remoto debe permitir la lectura desde el navegador (CORS).</p>
       {message ? <p role="status" className="player-message">{message}</p> : null}
       <div className="site-discovery">
         <p className="eyebrow">Website & event discovery</p>
@@ -428,7 +454,7 @@ export function StatusCatalogPlayer() {
               </select>
             </label>
             <button disabled={!selectedUrl || busy} onClick={() => void playSelected()}>{busy ? "Cargando…" : playing ? "Volver a cargar canal" : "▶ Reproducir canal seleccionado"}</button>
-            <span className="diagnostic-note">El estado de reproducción depende de la disponibilidad y los permisos de la fuente.</span>
+            <span className="diagnostic-note">El reproductor admite HLS (.m3u8), MP4, WebM y audio compatible; la reproducción depende de que la URL sea directa, accesible y autorizada.</span>
           </div>
           <div className="video-wrap">
             <video ref={videoRef} controls playsInline preload="metadata" />
