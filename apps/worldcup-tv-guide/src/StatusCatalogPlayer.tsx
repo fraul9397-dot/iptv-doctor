@@ -3,6 +3,59 @@ import { parseM3U } from "iptv-doctor-core";
 
 type CatalogChannel = { name: string; url: string; country?: string; category?: string };
 type WebSource = { name: string; country?: string; category?: string; status?: string; latencyMs?: number; url: string };
+type DiscoveredItem = { title: string; url: string; kind: "categoría" | "programa" | "evento" | "vídeo"; description?: string; date?: string };
+const ABEMA_CATEGORIES: DiscoveredItem[] = [
+  { title: "En directo / canales", url: "https://abema.tv/now-on-air", kind: "categoría", description: "Canales lineales y emisiones disponibles en ABEMA" },
+  { title: "Deportes", url: "https://abema.tv/video/genre/sports", kind: "categoría", description: "Deportes, partidos y programas deportivos" },
+  { title: "Anime", url: "https://abema.tv/video/genre/anime", kind: "categoría", description: "Catálogo de anime" },
+  { title: "Noticias", url: "https://abema.tv/video/genre/news", kind: "categoría", description: "Noticias y actualidad" },
+  { title: "Drama", url: "https://abema.tv/video/genre/drama", kind: "categoría", description: "Series y dramas" },
+  { title: "Variedades", url: "https://abema.tv/video/genre/variety", kind: "categoría", description: "Entretenimiento y variedades" },
+  { title: "Películas", url: "https://abema.tv/video/genre/movie", kind: "categoría", description: "Películas y cine" },
+  { title: "Documentales", url: "https://abema.tv/video/genre/documentary", kind: "categoría", description: "Documentales" },
+  { title: "Programación", url: "https://abema.tv/timetable", kind: "categoría", description: "Consulta la parrilla oficial" }
+];
+
+function discoverPageItems(html: string, pageUrl: string): DiscoveredItem[] {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const found: DiscoveredItem[] = [];
+  const seen = new Set<string>();
+  const add = (item: DiscoveredItem) => {
+    if (!item.title || !item.url || seen.has(item.url)) return;
+    seen.add(item.url);
+    found.push(item);
+  };
+  const walk = (value: unknown) => {
+    if (Array.isArray(value)) { value.forEach(walk); return; }
+    if (!value || typeof value !== "object") return;
+    const record = value as Record<string, unknown>;
+    const rawType = record["@type"];
+    const type = (Array.isArray(rawType) ? rawType.join(" ") : String(rawType ?? "")).toLowerCase();
+    const rawUrl = typeof record.url === "string" ? record.url : typeof record["@id"] === "string" ? record["@id"] : "";
+    if (rawUrl && typeof record.name === "string" && /(event|broadcast|tvseries|episode|movie|videoobject|creativework)/.test(type)) {
+      try {
+        add({ title: record.name, url: new URL(rawUrl, pageUrl).toString(), kind: type.includes("event") ? "evento" : /video|episode/.test(type) ? "vídeo" : "programa", description: typeof record.description === "string" ? record.description : undefined, date: typeof record.startDate === "string" ? record.startDate : undefined });
+      } catch { /* Ignore invalid metadata URLs. */ }
+    }
+    Object.values(record).forEach(walk);
+  };
+  for (const script of Array.from(doc.querySelectorAll('script[type="application/ld+json"]'))) {
+    try { walk(JSON.parse(script.textContent || "")); } catch { /* Ignore malformed JSON-LD. */ }
+  }
+  for (const anchor of Array.from(doc.querySelectorAll("a[href]"))) {
+    const title = (anchor.textContent || anchor.getAttribute("aria-label") || anchor.getAttribute("title") || "").replace(/\s+/g, " ").trim();
+    if (title.length < 3 || title.length > 160) continue;
+    try {
+      const url = new URL(anchor.getAttribute("href") || "", pageUrl);
+      if (!/^https?:$/.test(url.protocol) || url.hostname !== new URL(pageUrl).hostname) continue;
+      const path = url.pathname.toLowerCase();
+      const kind: DiscoveredItem["kind"] = /slot|event|schedule|timetable/.test(path) ? "evento" : /video|title|episode|program/.test(path) ? "programa" : "categoría";
+      add({ title, url: url.toString(), kind });
+    } catch { /* Ignore invalid links. */ }
+  }
+  return found;
+}
+
 type HlsConstructor = new (config?: Record<string, unknown>) => {
   loadSource: (url: string) => void;
   attachMedia: (media: HTMLMediaElement) => void;
@@ -171,6 +224,9 @@ export function StatusCatalogPlayer() {
   const [busy, setBusy] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [catalogUrl, setCatalogUrl] = useState("https://iptv-doctor.onrender.com/status-index.json");
+  const [siteUrl, setSiteUrl] = useState("https://abema.tv");
+  const [discoveredItems, setDiscoveredItems] = useState<DiscoveredItem[]>(ABEMA_CATEGORIES);
+  const [siteMessage, setSiteMessage] = useState("ABEMA: géneros oficiales precargados. Pulsa «Buscar contenidos públicos» para intentar leer los programas y eventos que la web publique.");
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<InstanceType<HlsConstructor> | undefined>(undefined);
 
@@ -235,6 +291,33 @@ export function StatusCatalogPlayer() {
     }
   }
 
+  async function discoverSite(): Promise<void> {
+    let base: URL;
+    try { base = new URL(siteUrl.trim()); } catch { setSiteMessage("Introduce una URL completa, por ejemplo https://abema.tv"); return; }
+    if (base.protocol !== "https:" && base.protocol !== "http:") { setSiteMessage("Solo se admiten webs HTTP/HTTPS."); return; }
+    if (["localhost", "127.0.0.1", "::1"].includes(base.hostname) || /^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.)/.test(base.hostname)) {
+      setSiteMessage("Por seguridad, el explorador solo admite sitios públicos, no direcciones locales o privadas.");
+      return;
+    }
+    setBusy(true);
+    setSiteMessage("Buscando categorías, programas y eventos publicados en la web…");
+    try {
+      const response = await fetch(base.toString(), { headers: { Accept: "text/html,application/xhtml+xml" } });
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      const html = await response.text();
+      const items = discoverPageItems(html, base.toString());
+      const isAbema = base.hostname === "abema.tv" || base.hostname.endsWith(".abema.tv");
+      const merged = [...items, ...(isAbema ? ABEMA_CATEGORIES : [])];
+      const unique = [...new Map(merged.map((item) => [item.url, item])).values()];
+      setDiscoveredItems(unique);
+      setSiteMessage("Encontrados " + items.length + " enlaces públicos" + (isAbema ? " y accesos oficiales de géneros de ABEMA" : "") + ". La cantidad depende de los metadatos publicados por la web.");
+    } catch (error) {
+      const isAbema = base.hostname === "abema.tv" || base.hostname.endsWith(".abema.tv");
+      setDiscoveredItems(isAbema ? ABEMA_CATEGORIES : []);
+      setSiteMessage((error instanceof Error ? error.message : String(error)) + ". El navegador no pudo leer el HTML, normalmente por CORS o protección anti-bots. " + (isAbema ? "Se muestran los accesos oficiales conocidos para abrirlos en ABEMA." : "Esta web necesita una API/conector autorizado para una extracción completa."));
+    } finally { setBusy(false); }
+  }
+
   async function playSelected(): Promise<void> {
     const video = videoRef.current;
     if (!video || !selectedUrl) return;
@@ -291,6 +374,29 @@ export function StatusCatalogPlayer() {
       </div>
       <p className="diagnostic-note">También puedes importar los archivos JSON/CSV del índice de estado. Si solo contienen nombres y urlHost, no habrá enlaces reproducibles que extraer: será necesario un catálogo que publique las URL de vídeo.</p>
       {message ? <p role="status" className="player-message">{message}</p> : null}
+      <div className="site-discovery">
+        <p className="eyebrow">Website & event discovery</p>
+        <h3>Explorador de géneros, programas y eventos</h3>
+        <p>Detecta enlaces y metadatos públicos en webs compatibles. Para ABEMA se muestran accesos oficiales a canales, deportes, anime, noticias, drama, variedades, películas, documentales y programación.</p>
+        <div className="remote-catalog-controls">
+          <label>Web que quieres explorar
+            <input type="url" value={siteUrl} onChange={(event) => setSiteUrl(event.target.value)} placeholder="https://abema.tv" />
+          </label>
+          <button disabled={busy || !siteUrl.trim()} onClick={() => void discoverSite()}>{busy ? "Explorando…" : "Buscar contenidos públicos"}</button>
+        </div>
+        <p role="status" className="player-message">{siteMessage}</p>
+        {discoveredItems.length > 0 ? <div className="discovered-grid">
+          {discoveredItems.map((item) => <article className="discovered-item" key={item.url}>
+            <span className="source-status">{item.kind}</span>
+            <strong>{item.title}</strong>
+            {item.description ? <p>{item.description}</p> : null}
+            {item.date ? <small>{item.date}</small> : null}
+            <a href={item.url} target="_blank" rel="noopener noreferrer">Abrir en la web oficial ↗</a>
+          </article>)}
+        </div> : null}
+        <p className="diagnostic-note">La extracción automática depende de CORS y de los metadatos públicos de cada proveedor. No accede a APIs privadas ni elimina DRM. Si se encuentra una URL HLS directa y autorizada, impórtala en el reproductor de arriba.</p>
+      </div>
+
       {webSources.length > 0 ? (
         <div className="web-source-list">
           <h3>Webs del catálogo ({webSources.length})</h3>
