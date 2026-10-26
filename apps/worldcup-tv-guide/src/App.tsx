@@ -53,6 +53,8 @@ export function App() {
   const [probeResults, setProbeResults] = useState<ChannelDiagnostic[] | undefined>();
   const [probeBusy, setProbeBusy] = useState(false);
   const [probeMessage, setProbeMessage] = useState("");
+  const [probeFilter, setProbeFilter] = useState<"all" | "ok" | "warn" | "fail">("all");
+  const [probeSearch, setProbeSearch] = useState("");
   const summaryItems = statusIndex
     ? [
         { value: statusIndex.summary.total, label: "entries checked" },
@@ -80,6 +82,8 @@ export function App() {
     setLocalSummary(summarizeLocalPlaylist(text));
     setProbeResults(undefined);
     setProbeMessage("");
+    setProbeFilter("all");
+    setProbeSearch("");
   }
 
   async function handleProbePlaylist(): Promise<void> {
@@ -96,6 +100,8 @@ export function App() {
         sampleSegments: 1
       });
       setProbeResults(results);
+      setProbeFilter("all");
+      setProbeSearch("");
       setProbeMessage(sample.length < localSummary.probeChannels.length
         ? `Se comprobaron las primeras ${sample.length} entradas válidas de ${localSummary.probeChannels.length}. Puedes ejecutar la prueba por lotes con archivos más pequeños.`
         : `Comprobación terminada: ${results.length} entradas.`);
@@ -232,6 +238,16 @@ export function App() {
             {probeMessage ? <p role="status">{probeMessage}</p> : null}
             {probeResults ? (() => {
               const summary = createDiagnosticsSummary(probeResults);
+              const normalizedSearch = probeSearch.trim().toLocaleLowerCase();
+              const visibleResults = probeResults.filter((item) => {
+                const matchesStatus = probeFilter === "all" || item.status === probeFilter;
+                const matchesSearch = !normalizedSearch
+                  || item.channel.name.toLocaleLowerCase().includes(normalizedSearch)
+                  || item.channel.url.toLocaleLowerCase().includes(normalizedSearch)
+                  || item.code.toLocaleLowerCase().includes(normalizedSearch)
+                  || item.message.toLocaleLowerCase().includes(normalizedSearch);
+                return matchesStatus && matchesSearch;
+              });
               return (
                 <div className="probe-results">
                   <div className="diagnostic-stats">
@@ -244,14 +260,31 @@ export function App() {
                     <button onClick={() => downloadFile("iptv-doctor-diagnostico.json", renderJsonReport(probeResults), "application/json")}>Descargar JSON</button>
                     <button onClick={() => downloadFile("iptv-doctor-diagnostico.csv", renderCsvReport(probeResults), "text/csv;charset=utf-8")}>Descargar CSV</button>
                   </div>
+                  <div className="diagnostic-filters">
+                    <label>
+                      Filtrar resultados
+                      <select aria-label="Filtrar resultados por estado" value={probeFilter} onChange={(event) => setProbeFilter(event.target.value as "all" | "ok" | "warn" | "fail")}>
+                        <option value="all">Todos ({probeResults.length})</option>
+                        <option value="ok">Correctos ({summary.ok})</option>
+                        <option value="warn">Lentos ({summary.warn})</option>
+                        <option value="fail">Fallos o bloqueos ({summary.fail})</option>
+                      </select>
+                    </label>
+                    <label>
+                      Buscar canal, URL o error
+                      <input aria-label="Buscar en los resultados del diagnóstico" type="search" value={probeSearch} onChange={(event) => setProbeSearch(event.target.value)} placeholder="Nombre del canal, dominio, CORS..." />
+                    </label>
+                  </div>
                   <div className="issue-list">
-                    <strong>Resultados detallados</strong>
-                    <ul>{probeResults.map((item, index) => (
-                      <li key={item.channel.url + index}>
-                        <strong>{item.status.toUpperCase()}</strong> — {item.channel.name}: {item.message}
-                        {typeof item.latencyMs === "number" ? ` (${item.latencyMs} ms)` : ""}
-                      </li>
-                    ))}</ul>
+                    <strong>Resultados detallados ({visibleResults.length} mostrados de {probeResults.length})</strong>
+                    {visibleResults.length > 0 ? (
+                      <ul>{visibleResults.map((item, index) => (
+                        <li key={item.channel.url + index}>
+                          <strong>{item.status.toUpperCase()} · {item.code}</strong> — {item.channel.name}: {item.message}
+                          {typeof item.latencyMs === "number" ? ` (${item.latencyMs} ms)` : ""}
+                        </li>
+                      ))}</ul>
+                    ) : <p>No hay resultados que coincidan con el filtro o la búsqueda.</p>}
                   </div>
                 </div>
               );
