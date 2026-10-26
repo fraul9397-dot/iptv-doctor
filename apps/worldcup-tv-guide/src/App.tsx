@@ -169,23 +169,39 @@ export function App() {
       </section>
 
       <section className="panel local-panel">
-        <h2>Local M3U Playlist Preview</h2>
-        <p>Parse an M3U or M3U8 playlist in your browser. The file stays on this device.</p>
+        <h2>Analizador local de listas M3U / M3U8</h2>
+        <p>Analiza la estructura, detecta URLs inválidas y duplicadas y permite exportar una lista depurada. El archivo se procesa en este navegador y no se sube al servidor.</p>
         <input
-          aria-label="Local M3U file"
+          aria-label="Seleccionar archivo M3U local"
           type="file"
           accept=".m3u,.m3u8,audio/x-mpegurl"
           onChange={(event) => void handleLocalPlaylist(event.target.files?.[0])}
         />
         {localSummary ? (
           <div className="local-summary">
-            <strong>{localSummary.total} channels parsed locally</strong>
+            <strong>{localSummary.total} entradas encontradas</strong>
+            <div className="diagnostic-stats">
+              <div><strong>{localSummary.total - localSummary.invalidUrls - localSummary.duplicateUrls}</strong><span>entradas únicas válidas</span></div>
+              <div><strong>{localSummary.duplicateUrls}</strong><span>URLs duplicadas</span></div>
+              <div><strong>{localSummary.invalidUrls}</strong><span>URLs no válidas</span></div>
+              <div><strong>{localSummary.missingNames}</strong><span>nombres ausentes</span></div>
+            </div>
             <div className="chips">
               {localSummary.groups.map((item) => (
                 <span key={item.group}>{item.group}: {item.count}</span>
               ))}
             </div>
-            <p>{localSummary.channels.slice(0, 6).join(", ")}</p>
+            <p>Canales detectados: {localSummary.channels.slice(0, 10).join(", ") || "ninguno"}</p>
+            <button onClick={() => downloadFile("iptv-doctor-lista-depurada.m3u", localSummary.cleanedM3U, "audio/x-mpegurl")}>
+              <Download size={16} /> Descargar M3U depurada
+            </button>
+            <p className="diagnostic-note">Importante: este análisis revisa el formato y la estructura. No confirma si una emisión está activa; eso requiere comprobaciones de red y puede depender de CORS, autenticación o permisos del proveedor.</p>
+            {localSummary.issues.length > 0 ? (
+              <div className="issue-list">
+                <strong>Observaciones ({localSummary.issues.length}{localSummary.issues.length === 50 ? "+" : ""})</strong>
+                <ul>{localSummary.issues.map((issue, index) => <li key={index}>{issue}</li>)}</ul>
+              </div>
+            ) : <p>No se detectaron problemas estructurales en las entradas analizadas.</p>}
           </div>
         ) : null}
       </section>
