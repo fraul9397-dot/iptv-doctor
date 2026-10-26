@@ -194,9 +194,12 @@ export function StatusCatalogPlayer() {
       setSelectedUrl(unique[0]?.url ?? "");
       setMessage(unique.length
         ? `Importados ${unique.length} enlaces .m3u8 directos de “${file.name}”.`
-        : "El archivo se ha leído, pero no contiene URL directas .m3u8. En el status-index público, urlHost es solo el dominio de la web, no la dirección de vídeo.");
+        : sources.length
+          ? `Catálogo leído: ${sources.length} webs detectadas. No contiene manifiestos HLS directos; puedes abrir las webs oficiales en la lista inferior.`
+          : "El archivo se ha leído, pero no contiene URL directas .m3u8 ni dominios reconocibles.");
     } catch (error) {
       setChannels([]);
+      setWebSources([]);
       setSelectedUrl("");
       setMessage(error instanceof Error ? error.message : String(error));
     }
