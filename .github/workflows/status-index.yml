@@ -4,6 +4,12 @@ on:
   schedule:
     - cron: "0 */2 * * *"
   workflow_dispatch:
+  push:
+    paths:
+      - "packages/sports-data/src/publicSportsChannels.ts"
+      - "packages/sports-data/src/worldcup2026.ts"
+      - "scripts/generate-status-index.ts"
+      - ".github/workflows/status-index.yml"
 
 permissions:
   contents: write
