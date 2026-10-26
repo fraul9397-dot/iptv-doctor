@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { parseM3U } from "iptv-doctor-core";
 
 type CatalogChannel = { name: string; url: string; country?: string; category?: string };
+type WebSource = { name: string; country?: string; category?: string; status?: string; latencyMs?: number; url: string };
 type HlsConstructor = new (config?: Record<string, unknown>) => {
   loadSource: (url: string) => void;
   attachMedia: (media: HTMLMediaElement) => void;
@@ -73,6 +74,49 @@ function fromJson(data: unknown): CatalogChannel[] {
   return found;
 }
 
+function parseWebSources(text: string, filename: string): WebSource[] {
+  const ext = filename.toLowerCase().split(".").pop();
+  const safeUrl = (value: unknown): string | undefined => {
+    if (typeof value !== "string" || !value.trim()) return undefined;
+    const candidate = /^https?:\\/\\//i.test(value) ? value : `https://${value}`;
+    try {
+      const parsed = new URL(candidate);
+      return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.toString() : undefined;
+    } catch { return undefined; }
+  };
+  try {
+    if (ext === "csv") {
+      const rows = text.replace(/^\\uFEFF/, "").split(/\\r?\\n/).filter(Boolean);
+      if (rows.length < 2) return [];
+      const headers = csvCells(rows[0]).map((item) => item.toLowerCase());
+      const hostIndex = headers.findIndex((h) => /^(urlhost|host|domain|website|site)$/i.test(h));
+      const nameIndex = headers.findIndex((h) => /^(name|channel|title)$/i.test(h));
+      const countryIndex = headers.findIndex((h) => /^(country|countrycode)$/i.test(h));
+      const categoryIndex = headers.findIndex((h) => /^(category|group)$/i.test(h));
+      const statusIndex = headers.findIndex((h) => /^(status|state)$/i.test(h));
+      const latencyIndex = headers.findIndex((h) => /^(latencyms|latency|ms)$/i.test(h));
+      if (hostIndex < 0) return [];
+      return rows.slice(1).map((row) => {
+        const cells = csvCells(row); const url = safeUrl(cells[hostIndex]);
+        if (!url) return undefined;
+        const latency = latencyIndex >= 0 ? Number(cells[latencyIndex]) : NaN;
+        return { name: cells[nameIndex] || new URL(url).hostname, url, country: countryIndex >= 0 ? cells[countryIndex] : undefined, category: categoryIndex >= 0 ? cells[categoryIndex] : undefined, status: statusIndex >= 0 ? cells[statusIndex] : undefined, latencyMs: Number.isFinite(latency) ? latency : undefined };
+      }).filter((item): item is WebSource => Boolean(item));
+    }
+    const data: unknown = JSON.parse(text);
+    if (!data || typeof data !== "object") return [];
+    const root = data as Record<string, unknown>;
+    const records = Array.isArray(root.records) ? root.records : Array.isArray(data) ? data : [];
+    return records.flatMap((raw) => {
+      if (!raw || typeof raw !== "object") return [];
+      const row = raw as Record<string, unknown>;
+      const url = safeUrl(row.urlHost ?? row.website ?? row.site ?? row.domain);
+      if (!url) return [];
+      return [{ name: typeof row.name === "string" ? row.name : new URL(url).hostname, url, country: typeof row.country === "string" ? row.country : undefined, category: typeof row.category === "string" ? row.category : undefined, status: typeof row.status === "string" ? row.status : undefined, latencyMs: typeof row.latencyMs === "number" ? row.latencyMs : undefined }];
+    });
+  } catch { return []; }
+}
+
 function parseCatalog(text: string, filename: string): CatalogChannel[] {
   const ext = filename.toLowerCase().split(".").pop();
   if (ext === "m3u" || ext === "m3u8" || text.trimStart().startsWith("#EXTM3U")) {
@@ -119,7 +163,7 @@ function loadHlsJs(): Promise<void> {
 }
 
 export function StatusCatalogPlayer() {
-  const [channels, setChannels] = useState<CatalogChannel[]>([]);
+  const [channels, setChannels] = useState<CatalogChannel[]>([]);\n  const [webSources, setWebSources] = useState<WebSource[]>([]);
   const [selectedUrl, setSelectedUrl] = useState("");
   const [search, setSearch] = useState("");
   const [message, setMessage] = useState("Carga un catálogo que contenga direcciones directas .m3u8 para reproducirlas aquí.");
@@ -140,7 +184,7 @@ export function StatusCatalogPlayer() {
     setMessage("");
     setPlaying(false);
     try {
-      const parsed = parseCatalog(await file.text(), file.name);
+      const fileText = await file.text();\n      const sources = parseWebSources(fileText, file.name);\n      setWebSources(sources);\n      const parsed = parseCatalog(fileText, file.name);
       const unique = [...new Map(parsed.map((channel) => [channel.url, channel])).values()];
       setChannels(unique);
       setSelectedUrl(unique[0]?.url ?? "");
@@ -168,13 +212,13 @@ export function StatusCatalogPlayer() {
       if (!response.ok) throw new Error(`El catálogo respondió HTTP ${response.status}.`);
       const text = await response.text();
       const filename = url.pathname.split("/").pop() || "catalog.json";
-      const parsed = parseCatalog(text, filename);
+      const sources = parseWebSources(text, filename);\n      setWebSources(sources);\n      const parsed = parseCatalog(text, filename);
       const unique = [...new Map(parsed.map((channel) => [channel.url, channel])).values()];
       setChannels(unique);
       setSelectedUrl(unique[0]?.url ?? "");
       setMessage(unique.length
         ? `Catálogo remoto cargado: ${unique.length} enlaces HLS directos encontrados.`
-        : "El catálogo remoto se descargó, pero no contiene enlaces directos .m3u8. Los campos urlHost son dominios de páginas web, no direcciones de vídeo. Si el servidor bloquea CORS, descarga el archivo e impórtalo desde tu equipo.");
+        : sources.length ? `Catálogo de webs cargado: ${sources.length} sitios detectados. No contiene manifiestos HLS directos; puedes abrir cada web oficial desde la lista inferior.` : "El catálogo remoto se descargó, pero no contiene enlaces directos .m3u8 ni dominios reconocibles. Si el servidor bloquea CORS, descarga el archivo e impórtalo desde tu equipo.");
     } catch (error) {
       setMessage(error instanceof Error ? `No se pudo leer el catálogo remoto: ${error.message}. Prueba a descargar el archivo e importarlo localmente; el servidor puede bloquear CORS.` : String(error));
     } finally {
@@ -238,6 +282,23 @@ export function StatusCatalogPlayer() {
       </div>
       <p className="diagnostic-note">También puedes importar los archivos JSON/CSV del índice de estado. Si solo contienen nombres y urlHost, no habrá enlaces reproducibles que extraer: será necesario un catálogo que publique las URL de vídeo.</p>
       {message ? <p role="status" className="player-message">{message}</p> : null}
+      {webSources.length > 0 ? (
+        <div className="web-source-list">
+          <h3>Webs del catálogo ({webSources.length})</h3>
+          <p className="diagnostic-note">Estas son páginas de origen, no enlaces de emisión. Abrir la web permite comprobar las opciones oficiales de visionado; la página puede requerir cuenta, suscripción o disponibilidad regional.</p>
+          <label>Buscar web
+            <input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Nombre, país o categoría" />
+          </label>
+          <div className="web-source-rows">
+            {webSources.filter((source) => `${source.name} ${source.country ?? ""} ${source.category ?? ""} ${source.url}`.toLowerCase().includes(search.toLowerCase())).map((source) => (
+              <article className="web-source-row" key={source.name + source.url}>
+                <div><strong>{source.name}</strong><span>{[source.country, source.category].filter(Boolean).join(" · ")}</span><small>{new URL(source.url).hostname}{typeof source.latencyMs === "number" ? ` · ${source.latencyMs} ms` : ""}</small></div>
+                <div className="web-source-meta">{source.status ? <span className={/online|ok/i.test(source.status) ? "source-status online" : "source-status"}>{source.status}</span> : null}<button onClick={() => window.open(source.url, "_blank", "noopener,noreferrer")}>Abrir web oficial ↗</button></div>
+              </article>
+            ))}
+          </div>
+        </div>
+      ) : null}
       {channels.length > 0 ? (
         <div className="player-layout">
           <div className="player-controls">
