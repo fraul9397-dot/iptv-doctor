@@ -4,7 +4,27 @@ import { parseM3U } from "iptv-doctor-core";
 type CatalogChannel = { name: string; url: string; country?: string; category?: string };
 type SavedCatalog = { id: string; name: string; savedAt: string; channels: CatalogChannel[] };
 type WebSource = { name: string; country?: string; category?: string; status?: string; latencyMs?: number; url: string };
+type OfficialPortal = { name: string; country: string; category: string; url: string; note: string };
 type DiscoveredItem = { title: string; url: string; kind: string; description?: string; date?: string; source?: string };
+const OFFICIAL_SPORTS_PORTALS: OfficialPortal[] = [
+  { name: "Movistar Plus+ · Fútbol", country: "ES", category: "Fútbol de pago", url: "https://www.movistarplus.es/deportes/futbol", note: "Partidos y competiciones según suscripción y derechos vigentes." },
+  { name: "Movistar Plus+ · Deportes", country: "ES", category: "Deportes", url: "https://www.movistarplus.es/deportes", note: "Programación deportiva oficial y próximos eventos." },
+  { name: "Movistar Plus+ · Partidos de hoy", country: "ES", category: "Agenda deportiva", url: "https://www.movistarplus.es/deportes/futbol", note: "Consulta la programación oficial; la disponibilidad depende del plan." },
+  { name: "DAZN España", country: "ES", category: "Fútbol y deportes", url: "https://www.dazn.com/es-ES/home", note: "Directos y eventos según plan y derechos en España." },
+  { name: "Orange TV", country: "ES", category: "Televisión y fútbol", url: "https://www.orange.es/tv", note: "Paquetes de televisión sujetos a contratación." },
+  { name: "RTVE Play", country: "ES", category: "En abierto", url: "https://www.rtve.es/play/", note: "Canales y eventos disponibles en abierto, con restricciones según contenido." },
+  { name: "Teledeporte · RTVE Play", country: "ES", category: "Deporte en abierto", url: "https://www.rtve.es/play/deportes/", note: "Directos y eventos deportivos que RTVE tenga autorizados." },
+  { name: "3Cat · TV3", country: "ES / Catalunya", category: "Televisión pública", url: "https://www.3cat.cat/", note: "Canales y contenidos oficiales en catalán." },
+  { name: "Esport3 · 3Cat", country: "ES / Catalunya", category: "Deporte catalán", url: "https://www.3cat.cat/esport3/", note: "Programación y retransmisiones deportivas disponibles en 3Cat." },
+  { name: "Atresplayer · Directos", country: "ES", category: "Canales en directo", url: "https://www.atresplayer.com/directos/", note: "Canales del grupo Atresmedia; algunas funciones requieren cuenta." },
+  { name: "Mediaset Infinity", country: "ES", category: "Canales y programas", url: "https://www.mediasetinfinity.es/", note: "Canales y contenidos oficiales; disponibilidad según título." },
+  { name: "LALIGA · Web oficial", country: "ES", category: "Calendario y vídeo", url: "https://www.laliga.com/", note: "Calendario, resultados y vídeos oficiales; no implica que todos los partidos sean gratuitos." },
+  { name: "UEFA.tv", country: "GLOBAL", category: "Fútbol oficial", url: "https://www.uefa.tv/", note: "Resúmenes y eventos seleccionados según territorio y derechos." },
+  { name: "Barça One", country: "ES / Catalunya", category: "Canal de club", url: "https://barcaone.fcbarcelona.com/", note: "Contenido oficial del FC Barcelona; directos sujetos a programación." },
+  { name: "Real Madrid TV", country: "ES", category: "Canal de club", url: "https://www.realmadrid.com/en-US/real-madrid-tv", note: "Canal y contenido oficial del club." },
+  { name: "FIFA+", country: "GLOBAL", category: "Fútbol oficial", url: "https://www.plus.fifa.com/", note: "Partidos archivados, resúmenes y algunos directos según región." },
+  { name: "RTVE Deportes", country: "ES", category: "Noticias y eventos", url: "https://www.rtve.es/deportes/", note: "Noticias, calendario y enlaces oficiales a eventos." },
+];
 const ABEMA_CATEGORIES: DiscoveredItem[] = [
   { title: "En directo / canales", url: "https://abema.tv/now-on-air", kind: "categoría", description: "Canales lineales y emisiones disponibles en ABEMA" },
   { title: "Deportes", url: "https://abema.tv/video/genre/sports", kind: "categoría", description: "Deportes, partidos y programas deportivos" },
@@ -258,6 +278,7 @@ export function StatusCatalogPlayer() {
   const [webSources, setWebSources] = useState<WebSource[]>([]);
   const [selectedUrl, setSelectedUrl] = useState("");
   const [search, setSearch] = useState("");
+  const [portalSearch, setPortalSearch] = useState("");
   const [message, setMessage] = useState("Importa un catálogo y selecciona una fuente para reproducirla o diagnosticarla.");
   const [probeMessage, setProbeMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -586,6 +607,23 @@ export function StatusCatalogPlayer() {
         <p className="diagnostic-note">La extracción automática depende de CORS y de los metadatos públicos de cada proveedor. No accede a APIs privadas ni elimina DRM. Si se encuentra una URL HLS directa y autorizada, impórtala en el reproductor de arriba.</p>
       </div>
 
+      <div className="web-source-list official-portals">
+        <h3>Directorio de webs oficiales para ver deporte ({OFFICIAL_SPORTS_PORTALS.length})</h3>
+        <p className="diagnostic-note">Enlaces directos a páginas oficiales de emisión, programación y partidos. Son portales de visionado, no enlaces de vídeo reproducible; algunos requieren suscripción o tienen restricciones territoriales. No se publican enlaces pirata ni se sortean controles de acceso.</p>
+        <label>Buscar plataforma, deporte o país
+          <input type="search" value={portalSearch} onChange={(event) => setPortalSearch(event.target.value)} placeholder="Movistar, DAZN, partidos, Catalunya…" />
+        </label>
+        <div className="official-portal-grid">
+          {OFFICIAL_SPORTS_PORTALS.filter((portal) => `${portal.name} ${portal.country} ${portal.category} ${portal.note}`.toLowerCase().includes(portalSearch.toLowerCase())).map((portal) => (
+            <article className="official-portal-card" key={portal.name}>
+              <div className="official-portal-tags"><span>{portal.country}</span><span>{portal.category}</span></div>
+              <strong>{portal.name}</strong>
+              <p>{portal.note}</p>
+              <a href={portal.url} target="_blank" rel="noopener noreferrer">Abrir página oficial ↗</a>
+            </article>
+          ))}
+        </div>
+      </div>
       {webSources.length > 0 ? (
         <div className="web-source-list">
           <h3>Webs del catálogo ({webSources.length})</h3>
