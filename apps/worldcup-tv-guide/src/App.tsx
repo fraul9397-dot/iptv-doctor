@@ -1,6 +1,7 @@
 import { CalendarDays, Download, Github, Package, Tv } from "lucide-react";
 import { useEffect, useState } from "react";
 import { generateICalendar, generateM3UPlaceholder, generateXMLTV } from "@bjia666/match2epg";
+import { createDiagnosticsSummary, probePlaylist, renderCsvReport, renderJsonReport, type ChannelDiagnostic } from "iptv-doctor-core";
 import { getWorldCup2026Dataset } from "iptv-sports-data";
 import { summarizeLocalPlaylist, type LocalPlaylistSummary } from "./localPlaylist";
 
@@ -49,6 +50,9 @@ function downloadFile(name: string, content: string, type: string): void {
 export function App() {
   const [localSummary, setLocalSummary] = useState<LocalPlaylistSummary | undefined>();
   const [statusIndex, setStatusIndex] = useState<StatusIndex | undefined>();
+  const [probeResults, setProbeResults] = useState<ChannelDiagnostic[] | undefined>();
+  const [probeBusy, setProbeBusy] = useState(false);
+  const [probeMessage, setProbeMessage] = useState("");
   const summaryItems = statusIndex
     ? [
         { value: statusIndex.summary.total, label: "entries checked" },
@@ -74,6 +78,32 @@ export function App() {
     if (!file) return;
     const text = await file.text();
     setLocalSummary(summarizeLocalPlaylist(text));
+    setProbeResults(undefined);
+    setProbeMessage("");
+  }
+
+  async function handleProbePlaylist(): Promise<void> {
+    if (!localSummary || localSummary.probeChannels.length === 0) return;
+    setProbeBusy(true);
+    setProbeMessage("");
+    setProbeResults(undefined);
+    try {
+      const sample = localSummary.probeChannels.slice(0, 50);
+      const results = await probePlaylist(sample, {
+        timeoutMs: 6000,
+        concurrency: 4,
+        slowThresholdMs: 2500,
+        sampleSegments: 1
+      });
+      setProbeResults(results);
+      setProbeMessage(sample.length < localSummary.probeChannels.length
+        ? `Se comprobaron las primeras ${sample.length} entradas válidas de ${localSummary.probeChannels.length}. Puedes ejecutar la prueba por lotes con archivos más pequeños.`
+        : `Comprobación terminada: ${results.length} entradas.`);
+    } catch (error) {
+      setProbeMessage(`No se pudo completar la prueba: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setProbeBusy(false);
+    }
   }
 
   return (
@@ -195,6 +225,37 @@ export function App() {
             <button onClick={() => downloadFile("iptv-doctor-lista-depurada.m3u", localSummary.cleanedM3U, "audio/x-mpegurl")}>
               <Download size={16} /> Descargar M3U depurada
             </button>
+            <button disabled={probeBusy || localSummary.probeChannels.length === 0} onClick={() => void handleProbePlaylist()}>
+              {probeBusy ? "Comprobando disponibilidad..." : "Comprobar manifiestos y una muestra HLS"}
+            </button>
+            <p className="diagnostic-note">La prueba intenta leer cada manifiesto y solicitar una muestra de segmento. Algunos proveedores bloquean las peticiones desde navegadores mediante CORS o requieren autenticación; en esos casos el resultado puede ser inconcluso y no demuestra por sí solo que el canal esté caído.</p>
+            {probeMessage ? <p role="status">{probeMessage}</p> : null}
+            {probeResults ? (() => {
+              const summary = createDiagnosticsSummary(probeResults);
+              return (
+                <div className="probe-results">
+                  <div className="diagnostic-stats">
+                    <div><strong>{summary.total}</strong><span>comprobados</span></div>
+                    <div><strong>{summary.ok}</strong><span>correctos</span></div>
+                    <div><strong>{summary.warn}</strong><span>lentos</span></div>
+                    <div><strong>{summary.fail}</strong><span>fallos o bloqueos</span></div>
+                  </div>
+                  <div className="actions">
+                    <button onClick={() => downloadFile("iptv-doctor-diagnostico.json", renderJsonReport(probeResults), "application/json")}>Descargar JSON</button>
+                    <button onClick={() => downloadFile("iptv-doctor-diagnostico.csv", renderCsvReport(probeResults), "text/csv;charset=utf-8")}>Descargar CSV</button>
+                  </div>
+                  <div className="issue-list">
+                    <strong>Resultados detallados</strong>
+                    <ul>{probeResults.map((item, index) => (
+                      <li key={item.channel.url + index}>
+                        <strong>{item.status.toUpperCase()}</strong> — {item.channel.name}: {item.message}
+                        {typeof item.latencyMs === "number" ? ` (${item.latencyMs} ms)` : ""}
+                      </li>
+                    ))}</ul>
+                  </div>
+                </div>
+              );
+            })() : null}
             <p className="diagnostic-note">Importante: este análisis revisa el formato y la estructura. No confirma si una emisión está activa; eso requiere comprobaciones de red y puede depender de CORS, autenticación o permisos del proveedor.</p>
             {localSummary.issues.length > 0 ? (
               <div className="issue-list">
