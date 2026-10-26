@@ -87,6 +87,34 @@ async function safeFetch(url, robotsText) {
   }
 }
 
+async function readLimitedText(response, maxBytes) {
+  if (!response.body) {
+    const text = await response.text();
+    if (Buffer.byteLength(text, "utf8") > maxBytes) throw new Error("El catálogo supera el límite de 2 MB.");
+    return text;
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder("utf-8", { fatal: false });
+  let total = 0;
+  let text = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel();
+        throw new Error("El catálogo supera el límite de 2 MB.");
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    text += decoder.decode();
+    return text;
+  } finally {
+    try { reader.releaseLock(); } catch {}
+  }
+}
+
 function extractSitemapUrls(xml, baseUrl) {
   const urls = [];
   const re = /<loc>\s*([\s\S]*?)\s*<[/]loc>/gi;
@@ -228,14 +256,12 @@ const server = createServer(async (req, res) => {
           if (!robotsAllows(robots, target.pathname || "/")) throw new Error("El destino está excluido por robots.txt.");
           const redirected = await fetch(target, { redirect: "error", signal: controller.signal, headers: { "User-Agent": "IPTV-Doctor-PublicCatalogBot/1.0", Accept: "application/json,text/csv,audio/x-mpegurl,text/plain,*/*" } });
           if (!redirected.ok) throw new Error("HTTP " + redirected.status);
-          const body = await redirected.text();
-          if (Buffer.byteLength(body, "utf8") > MAX_BYTES) throw new Error("El catálogo supera el límite de 2 MB.");
+          const body = await readLimitedText(redirected, MAX_BYTES);
           res.writeHead(200);
           return res.end(JSON.stringify({ content: body, contentType: redirected.headers.get("content-type") || "", filename: target.pathname.split("/").pop() || "catalog.txt" }));
         }
         if (!response.ok) throw new Error("HTTP " + response.status);
-        const body = await response.text();
-        if (Buffer.byteLength(body, "utf8") > MAX_BYTES) throw new Error("El catálogo supera el límite de 2 MB.");
+        const body = await readLimitedText(response, MAX_BYTES);
         res.writeHead(200);
         return res.end(JSON.stringify({ content: body, contentType: response.headers.get("content-type") || "", filename: start.pathname.split("/").pop() || "catalog.txt" }));
       } catch (error) {
