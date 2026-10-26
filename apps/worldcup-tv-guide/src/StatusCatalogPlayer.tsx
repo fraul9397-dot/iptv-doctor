@@ -163,7 +163,8 @@ function loadHlsJs(): Promise<void> {
 }
 
 export function StatusCatalogPlayer() {
-  const [channels, setChannels] = useState<CatalogChannel[]>([]);\n  const [webSources, setWebSources] = useState<WebSource[]>([]);
+  const [channels, setChannels] = useState<CatalogChannel[]>([]);
+  const [webSources, setWebSources] = useState<WebSource[]>([]);
   const [selectedUrl, setSelectedUrl] = useState("");
   const [search, setSearch] = useState("");
   const [message, setMessage] = useState("Carga un catálogo que contenga direcciones directas .m3u8 para reproducirlas aquí.");
@@ -184,7 +185,8 @@ export function StatusCatalogPlayer() {
     setMessage("");
     setPlaying(false);
     try {
-      const fileText = await file.text();\n      const sources = parseWebSources(fileText, file.name);\n      setWebSources(sources);\n      const parsed = parseCatalog(fileText, file.name);
+      const fileText = await file.text();
+      const sources = parseWebSources(fileText, file.name);\n      setWebSources(sources);\n      const parsed = parseCatalog(fileText, file.name);
       const unique = [...new Map(parsed.map((channel) => [channel.url, channel])).values()];
       setChannels(unique);
       setSelectedUrl(unique[0]?.url ?? "");
