@@ -257,7 +257,8 @@ export function StatusCatalogPlayer() {
   const [webSources, setWebSources] = useState<WebSource[]>([]);
   const [selectedUrl, setSelectedUrl] = useState("");
   const [search, setSearch] = useState("");
-  const [message, setMessage] = useState("Carga un catálogo que contenga direcciones directas .m3u8 para reproducirlas aquí.");
+  const [message, setMessage] = useState("Importa un catálogo y selecciona una fuente para reproducirla o diagnosticarla.");
+  const [probeMessage, setProbeMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [favoriteUrls, setFavoriteUrls] = useState<string[]>(() => {
@@ -392,6 +393,23 @@ export function StatusCatalogPlayer() {
       const isAbema = base.hostname === "abema.tv" || base.hostname.endsWith(".abema.tv");
       setDiscoveredItems(isAbema ? ABEMA_CATEGORIES : []);
       setSiteMessage((error instanceof Error ? error.message : String(error)) + ". Comprueba que el servicio de descubrimiento haya terminado de desplegarse. Solo se leen metadatos públicos; no se accede a APIs privadas ni se evita DRM.");
+    } finally { setBusy(false); }
+  }
+
+  async function probeSelected(): Promise<void> {
+    if (!selectedUrl) return;
+    setBusy(true);
+    setProbeMessage("Comprobando disponibilidad HTTP y cabeceras de la fuente…");
+    try {
+      const endpoint = new URL("https://iptv-doctor-public-catalog.onrender.com/api/probe");
+      endpoint.searchParams.set("url", selectedUrl);
+      const response = await fetch(endpoint.toString(), { headers: { Accept: "application/json" } });
+      const result = await response.json() as { error?: string; status?: number; ok?: boolean; contentType?: string; contentLength?: string | null; contentRange?: string | null; acceptsRanges?: string | null; finalUrl?: string; note?: string };
+      if (!response.ok) throw new Error(result.error || "HTTP " + response.status);
+      const statusLabel = result.ok ? "El servidor respondió" : "El servidor devolvió un error HTTP";
+      setProbeMessage(`${statusLabel}: ${result.status ?? "?"} · Tipo: ${result.contentType || "desconocido"} · Tamaño: ${result.contentLength || "no indicado"} · Rango: ${result.contentRange || result.acceptsRanges || "no anunciado"}. ${result.note || ""}${result.finalUrl && result.finalUrl !== selectedUrl ? " URL final: " + result.finalUrl : ""}`);
+    } catch (error) {
+      setProbeMessage("No se pudo comprobar la fuente: " + (error instanceof Error ? error.message : String(error)) + ". Puede ser un bloqueo de red, CORS, una URL no pública o una restricción del servidor.");
     } finally { setBusy(false); }
   }
 
@@ -536,7 +554,10 @@ export function StatusCatalogPlayer() {
             </label>
             {selectedUrl ? <button type="button" onClick={() => toggleFavorite(selectedUrl)}>{favoriteUrls.includes(selectedUrl) ? "★ Quitar de favoritos" : "☆ Añadir a favoritos"}</button> : null}
             <button disabled={!visible.some((channel) => channel.url === selectedUrl) || busy} onClick={() => void playSelected()}>{busy ? "Cargando…" : playing ? "Volver a cargar canal" : "▶ Reproducir canal seleccionado"}</button>
-            <span className="diagnostic-note">Formatos detectados: HLS (.m3u8), DASH (.mpd), archivos MP4/WebM y audio. La compatibilidad real depende del navegador, códecs, CORS y permisos del origen.</span>
+            <button type="button" className="secondary-action" disabled={!selectedUrl || busy} onClick={() => void probeSelected()}>⌕ Diagnosticar fuente</button>
+            {probeMessage ? <p role="status" className="player-message">{probeMessage}</p> : null}
+            {selectedUrl ? <a className="source-open-link" href={selectedUrl} target="_blank" rel="noopener noreferrer">Abrir URL de origen ↗</a> : null}
+            <span className="diagnostic-note">Formatos detectados: HLS (.m3u8), DASH (.mpd), archivos MP4/WebM y audio. El diagnóstico comprueba cabeceras HTTP, no garantiza la reproducción. CORS, códecs, permisos y DRM pueden impedirla.</span>
           </div>
           <div className="video-wrap">
             <video ref={videoRef} controls playsInline preload="metadata" />
