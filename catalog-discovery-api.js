@@ -3,8 +3,8 @@ import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 
 const PORT = Number(process.env.PORT || 10000);
-const MAX_PAGES = 12;
-const MAX_BYTES = 1_500_000;
+const MAX_PAGES = 50;
+const MAX_BYTES = 2_000_000;
 const TIMEOUT_MS = 7000;
 const scans = new Map();
 
@@ -85,6 +85,45 @@ async function safeFetch(url, robotsText) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+function extractSitemapUrls(xml, baseUrl) {
+  const urls = [];
+  const re = /<loc>\\s*([\\s\\S]*?)\\s*<\\/loc>/gi;
+  let match;
+  while ((match = re.exec(xml)) !== null && urls.length < 500) {
+    const raw = decode(match[1]).trim();
+    try {
+      const url = new URL(raw, baseUrl);
+      if (url.hostname === baseUrl.hostname && ["http:", "https:"].includes(url.protocol)) {
+        url.hash = "";
+        urls.push(url);
+      }
+    } catch {}
+  }
+  return urls;
+}
+
+function extractScriptUrls(html, pageUrl) {
+  const urls = [];
+  const seen = new Set();
+  const patterns = [
+    /["']((?:https?:)?\\/\\/[^"'\\s<>]+|\\/(?:video|genre|now-on-air|timetable|program|channel|sports|anime|news|drama|movie|event)[^"'\\s<>]*)["']/gi,
+    /(?:href|url|canonical|permalink)\\s*[:=]\\s*["']([^"'<>]{3,500})["']/gi
+  ];
+  for (const pattern of patterns) {
+    let match;
+    while ((match = pattern.exec(html)) !== null && urls.length < 500) {
+      try {
+        const raw = match[1].replace(/\\\\u002F/g, "/").replace(/\\\\\\//g, "/").replace(/\\\\u0026/g, "&");
+        const url = new URL(raw.startsWith("//") ? pageUrl.protocol + raw : raw, pageUrl);
+        if (url.hostname !== pageUrl.hostname || !["http:", "https:"].includes(url.protocol)) continue;
+        url.hash = "";
+        if (!seen.has(url.href)) { seen.add(url.href); urls.push(url); }
+      } catch {}
+    }
+  }
+  return urls;
 }
 
 function extractPage(html, pageUrl) {
@@ -168,6 +207,31 @@ const server = createServer(async (req, res) => {
       if (robotsResponse.ok) robots = (await robotsResponse.text()).slice(0, 100000);
     } catch {}
     const queue = [start];
+    // Use public sitemaps as discovery hints; only same-host URLs are queued.
+    for (const sitemapPath of ["/sitemap.xml", "/sitemap_index.xml", "/sitemap-index.xml"]) {
+      try {
+        const sitemapUrl = new URL(sitemapPath, start);
+        await assertPublicHost(sitemapUrl);
+        const sitemapResponse = await fetch(sitemapUrl, { redirect: "error", signal: AbortSignal.timeout(4000), headers: { "User-Agent": "IPTV-Doctor-PublicCatalogBot/1.0", Accept: "application/xml,text/xml,*/*" } });
+        if (sitemapResponse.ok) {
+          const sitemapText = (await sitemapResponse.text()).slice(0, MAX_BYTES);
+          for (const sitemapEntry of extractSitemapUrls(sitemapText, start)) {
+            if (sitemapEntry.pathname.toLowerCase().endsWith(".xml")) {
+              try {
+                const nestedResponse = await fetch(sitemapEntry, { redirect: "error", signal: AbortSignal.timeout(4000), headers: { "User-Agent": "IPTV-Doctor-PublicCatalogBot/1.0", Accept: "application/xml,text/xml,*/*" } });
+                if (nestedResponse.ok) {
+                  const nestedText = (await nestedResponse.text()).slice(0, MAX_BYTES);
+                  for (const nestedUrl of extractSitemapUrls(nestedText, start)) {
+                    if (robotsAllows(robots, nestedUrl.pathname) && queue.length < 500) queue.push(nestedUrl);
+                  }
+                }
+              } catch {}
+            } else if (robotsAllows(robots, sitemapEntry.pathname) && queue.length < 500) queue.push(sitemapEntry);
+          }
+          break;
+        }
+      } catch {}
+    }
     const visited = new Set();
     const items = new Map();
     const pages = [];
@@ -194,9 +258,10 @@ const server = createServer(async (req, res) => {
         const page = extractPage(html, finalUrl);
         pages.push({ url: finalUrl.href, title: pageTitle(html, finalUrl) });
         for (const item of page.items) items.set(item.url, item);
-        for (const link of page.links) {
-          if (queue.length + visited.size >= MAX_PAGES) break;
-          if (!visited.has(link.href) && link.hostname === start.hostname && robotsAllows(robots, link.pathname)) queue.push(link);
+        const discoveredLinks = [...page.links, ...extractScriptUrls(html, finalUrl)];
+        for (const link of discoveredLinks) {
+          if (queue.length + visited.size >= 500) break;
+          if (!visited.has(link.href) && !queue.some((queued) => queued.href === link.href) && link.hostname === start.hostname && robotsAllows(robots, link.pathname)) queue.push(link);
         }
       } catch (error) {
         if (visited.size === 1) pages.push({ url: current.href, error: error instanceof Error ? error.message : String(error) });
@@ -207,7 +272,7 @@ const server = createServer(async (req, res) => {
       scannedAt: new Date().toISOString(),
       pagesScanned: pages.length,
       limitedToPublicPages: true,
-      note: "Solo se leen páginas HTML públicas permitidas por robots.txt. No se accede a APIs privadas, sesiones, contenido de pago ni DRM.",
+      note: "Hasta 50 páginas HTML públicas por búsqueda, con sitemaps y enlaces internos permitidos por robots.txt. No se accede a APIs privadas, sesiones, contenido de pago ni DRM.",
       pages,
       items: [...items.values()]
     };
