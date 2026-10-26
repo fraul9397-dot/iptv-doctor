@@ -56,6 +56,15 @@ function discoverPageItems(html: string, pageUrl: string): DiscoveredItem[] {
   return found;
 }
 
+type DashPlayer = {
+  initialize: (element: HTMLMediaElement, source: string, autoplay?: boolean) => void;
+  on: (event: string, callback: (event: { error?: { message?: string; code?: number } }) => void) => void;
+  reset: () => void;
+};
+declare global {
+  interface Window { dashjs?: { MediaPlayer: () => { create: () => DashPlayer }; }; }
+}
+
 type HlsConstructor = new (config?: Record<string, unknown>) => {
   loadSource: (url: string) => void;
   attachMedia: (media: HTMLMediaElement) => void;
@@ -84,12 +93,13 @@ function csvCells(line: string): string[] {
   return result;
 }
 
-function mediaKind(value: string): "hls" | "file" | undefined {
+function mediaKind(value: string): "hls" | "dash" | "file" | undefined {
   try {
     const parsed = new URL(value);
     if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return undefined;
     const path = parsed.pathname.toLowerCase();
     if (/\.m3u8$/i.test(path) || /\.m3u8\//i.test(path)) return "hls";
+    if (/\.mpd$/i.test(path) || /\.mpd\//i.test(path)) return "dash";
     if (/\.(mp4|m4v|webm|ogv|ogg|mp3|m4a|aac|wav)$/i.test(path)) return "file";
     return undefined;
   } catch { return undefined; }
@@ -97,10 +107,6 @@ function mediaKind(value: string): "hls" | "file" | undefined {
 
 function isPlayableMedia(value: string): boolean {
   return mediaKind(value) !== undefined;
-}
-
-function isDirectHls(value: string): boolean {
-  return mediaKind(value) === "hls";
 }
 
 function extractMediaUrls(value: string): string[] {
@@ -216,6 +222,20 @@ function parseCatalog(text: string, filename: string): CatalogChannel[] {
   }
   try { return fromJson(JSON.parse(text)); }
   catch { throw new Error("No se reconoce el archivo. Usa una lista M3U/M3U8, JSON o CSV válido."); }
+}
+
+let dashLoader: Promise<void> | undefined;
+function loadDashJs(): Promise<void> {
+  if (window.dashjs) return Promise.resolve();
+  if (!dashLoader) dashLoader = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://cdn.jsdelivr.net/npm/dashjs@4.7.4/dist/dash.all.min.js";
+    script.async = true;
+    script.onload = () => window.dashjs ? resolve() : reject(new Error("No se pudo inicializar el reproductor DASH."));
+    script.onerror = () => reject(new Error("No se pudo descargar el componente DASH."));
+    document.head.appendChild(script);
+  });
+  return dashLoader;
 }
 
 let hlsLoader: Promise<void> | undefined;
@@ -388,6 +408,20 @@ export function StatusCatalogPlayer() {
     video.load();
     try {
       const kind = mediaKind(selectedUrl);
+      if (kind === "dash") {
+        await loadDashJs();
+        if (!window.dashjs) throw new Error("El reproductor DASH no está disponible.");
+        const dash = window.dashjs.MediaPlayer().create();
+        dash.on("error", (event) => {
+          setPlaying(false);
+          setMessage(`Error DASH${event.error?.code ? " " + event.error.code : ""}: ${event.error?.message || "no se pudo cargar el manifiesto o sus segmentos"}. Comprueba CORS, disponibilidad y permisos de la fuente.`);
+        });
+        dash.initialize(video, selectedUrl, true);
+        video.onplaying = () => { setPlaying(true); setMessage("Reproducción DASH iniciada."); };
+        video.onerror = () => { setPlaying(false); setMessage("El navegador no pudo reproducir la fuente DASH. Puede requerir CORS, un códec compatible o permisos."); };
+        setMessage("Cargando manifiesto DASH…");
+        return;
+      }
       if (kind === "file") {
         video.src = selectedUrl;
         await video.play();
@@ -395,7 +429,7 @@ export function StatusCatalogPlayer() {
         setMessage("Reproducción iniciada.");
         return;
       }
-      if (kind !== "hls") throw new Error("Formato de vídeo no reconocido. Usa un enlace HLS .m3u8 o un archivo MP4/WebM/audio directo.");
+      if (kind !== "hls") throw new Error("Formato no reconocido. Usa HLS (.m3u8), DASH (.mpd) o un archivo MP4/WebM/audio directo.");
       if (video.canPlayType("application/vnd.apple.mpegurl")) {
         video.src = selectedUrl;
         await video.play();
@@ -430,7 +464,7 @@ export function StatusCatalogPlayer() {
     <section className="panel local-panel player-panel">
       <p className="eyebrow">HLS catalogue player</p>
       <h2>Importar catálogo y reproducir</h2>
-      <p>Admite archivos M3U/M3U8, JSON y CSV. Detecta enlaces directos HLS (.m3u8), MP4, WebM y audio compatibles, permite buscar canales y reproducirlos aquí. No convierte webs en emisiones ni evita autenticación o DRM.</p>
+      <p>Admite catálogos M3U/M3U8, JSON y CSV; reproduce HLS (.m3u8), DASH (.mpd), MP4, WebM y audio compatible. Busca por canal, filtra categorías y guarda favoritos en este navegador. Las fuentes deben ser públicas o estar autorizadas; no se elude DRM ni autenticación.</p>
       <input aria-label="Importar catálogo JSON CSV M3U" type="file" accept=".json,.csv,.m3u,.m3u8,application/json,text/csv,audio/x-mpegurl" onChange={(event) => void loadFile(event.target.files?.[0])} />
       <div className="remote-catalog-controls">
         <label>O cargar catálogo desde una URL pública
@@ -502,7 +536,7 @@ export function StatusCatalogPlayer() {
             </label>
             {selectedUrl ? <button type="button" onClick={() => toggleFavorite(selectedUrl)}>{favoriteUrls.includes(selectedUrl) ? "★ Quitar de favoritos" : "☆ Añadir a favoritos"}</button> : null}
             <button disabled={!visible.some((channel) => channel.url === selectedUrl) || busy} onClick={() => void playSelected()}>{busy ? "Cargando…" : playing ? "Volver a cargar canal" : "▶ Reproducir canal seleccionado"}</button>
-            <span className="diagnostic-note">El reproductor admite HLS (.m3u8), MP4, WebM y audio compatible; la reproducción depende de que la URL sea directa, accesible y autorizada.</span>
+            <span className="diagnostic-note">Formatos detectados: HLS (.m3u8), DASH (.mpd), archivos MP4/WebM y audio. La compatibilidad real depende del navegador, códecs, CORS y permisos del origen.</span>
           </div>
           <div className="video-wrap">
             <video ref={videoRef} controls playsInline preload="metadata" />
