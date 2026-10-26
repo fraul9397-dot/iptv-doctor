@@ -240,6 +240,15 @@ export function StatusCatalogPlayer() {
   const [message, setMessage] = useState("Carga un catálogo que contenga direcciones directas .m3u8 para reproducirlas aquí.");
   const [busy, setBusy] = useState(false);
   const [playing, setPlaying] = useState(false);
+  const [favoriteUrls, setFavoriteUrls] = useState<string[]>(() => {
+    try {
+      const saved = window.localStorage.getItem("iptv-doctor-favorites-v1");
+      const parsed: unknown = saved ? JSON.parse(saved) : [];
+      return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+    } catch { return []; }
+  });
+  const [favoriteOnly, setFavoriteOnly] = useState(false);
+  const [categoryFilter, setCategoryFilter] = useState("Todas");
   const [catalogUrl, setCatalogUrl] = useState("https://iptv-doctor.onrender.com/status-index.json");
   const [siteUrl, setSiteUrl] = useState("https://abema.tv");
   const [discoveredItems, setDiscoveredItems] = useState<DiscoveredItem[]>(ABEMA_CATEGORIES);
@@ -247,11 +256,21 @@ export function StatusCatalogPlayer() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<InstanceType<HlsConstructor> | undefined>(undefined);
 
+  const categories = useMemo(() => ["Todas", ...new Set(channels.map((channel) => channel.category?.trim()).filter((value): value is string => Boolean(value)))].sort((a, b) => a === "Todas" ? -1 : b === "Todas" ? 1 : a.localeCompare(b)), [channels]);
   const visible = useMemo(() => channels.filter((channel) =>
-    `${channel.name} ${channel.country ?? ""} ${channel.category ?? ""} ${channel.url}`.toLowerCase().includes(search.toLowerCase())
-  ), [channels, search]);
+    `${channel.name} ${channel.country ?? ""} ${channel.category ?? ""} ${channel.url}`.toLowerCase().includes(search.toLowerCase()) &&
+    (categoryFilter === "Todas" || channel.category === categoryFilter) &&
+    (!favoriteOnly || favoriteUrls.includes(channel.url))
+  ), [channels, search, categoryFilter, favoriteOnly, favoriteUrls]);
 
+  useEffect(() => {
+    try { window.localStorage.setItem("iptv-doctor-favorites-v1", JSON.stringify(favoriteUrls)); } catch { /* Storage may be unavailable in private browsing. */ }
+  }, [favoriteUrls]);
   useEffect(() => () => { hlsRef.current?.destroy(); }, []);
+
+  function toggleFavorite(url: string): void {
+    setFavoriteUrls((current) => current.includes(url) ? current.filter((item) => item !== url) : [...current, url]);
+  }
 
   async function loadFile(file?: File): Promise<void> {
     if (!file) return;
@@ -266,7 +285,7 @@ export function StatusCatalogPlayer() {
       setChannels(unique);
       setSelectedUrl(unique[0]?.url ?? "");
       setMessage(unique.length
-        ? `Importados ${unique.length} enlaces .m3u8 directos de “${file.name}”.`
+        ? `Importados ${unique.length} enlaces de vídeo/audio compatibles de “${file.name}”.`
         : sources.length
           ? `Catálogo leído: ${sources.length} webs detectadas. No contiene manifiestos HLS directos; puedes abrir las webs oficiales en la lista inferior.`
           : "El archivo se ha leído, pero no contiene enlaces directos compatibles (.m3u8, .mp4, .webm o audio). Las páginas web no son emisiones reproducibles.");
@@ -318,7 +337,7 @@ export function StatusCatalogPlayer() {
       setChannels(unique);
       setSelectedUrl(unique[0]?.url ?? "");
       setMessage(unique.length
-        ? `Catálogo remoto cargado: ${unique.length} enlaces HLS directos encontrados.`
+        ? `Catálogo remoto cargado: ${unique.length} enlaces de vídeo/audio compatibles encontrados.`
         : sources.length ? `Catálogo de webs cargado: ${sources.length} sitios detectados. No contiene manifiestos HLS directos; puedes abrir cada web oficial desde la lista inferior.` : "El catálogo remoto se descargó, pero no contiene enlaces directos .m3u8 ni dominios reconocibles. Si el servidor bloquea CORS, descarga el archivo e impórtalo desde tu equipo.");
     } catch (error) {
       setMessage(error instanceof Error ? `No se pudo leer el catálogo remoto: ${error.message}. Prueba a descargar el archivo e importarlo localmente; el servidor puede bloquear CORS.` : String(error));
@@ -419,7 +438,7 @@ export function StatusCatalogPlayer() {
         </label>
         <button disabled={busy || !catalogUrl.trim()} onClick={() => void loadRemoteCatalog()}>{busy ? "Cargando catálogo…" : "Leer catálogo remoto"}</button>
       </div>
-      <p className="diagnostic-note">También puedes pegar la URL de un archivo de catálogo público. Si solo contiene nombres y urlHost (webs), no habrá emisiones que reproducir: necesitas un catálogo con URL directas de vídeo. El servidor remoto debe permitir la lectura desde el navegador (CORS).</p>
+      <p className="diagnostic-note">También puedes pegar una URL directa de vídeo/audio o la URL de un catálogo público. Si solo contiene nombres y urlHost (webs), no habrá emisiones que reproducir: necesitas enlaces directos. El lector remoto respeta los límites de seguridad y puede rechazar redirecciones entre dominios.</p>
       {message ? <p role="status" className="player-message">{message}</p> : null}
       <div className="site-discovery">
         <p className="eyebrow">Website & event discovery</p>
@@ -467,12 +486,22 @@ export function StatusCatalogPlayer() {
             <label>Buscar canal
               <input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Nombre, país o categoría" />
             </label>
+            <label>Categoría
+              <select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
+                {categories.map((category) => <option key={category} value={category}>{category}</option>)}
+              </select>
+            </label>
+            <label className="favorite-filter">
+              <input type="checkbox" checked={favoriteOnly} onChange={(event) => setFavoriteOnly(event.target.checked)} />
+              Mostrar solo favoritos ({favoriteUrls.length})
+            </label>
             <label>Canal ({visible.length} de {channels.length})
-              <select value={selectedUrl} onChange={(event) => { setSelectedUrl(event.target.value); setPlaying(false); }} size={Math.min(8, Math.max(3, visible.length))}>
+              <select value={visible.some((channel) => channel.url === selectedUrl) ? selectedUrl : (visible[0]?.url ?? "")} onChange={(event) => { setSelectedUrl(event.target.value); setPlaying(false); }} size={Math.min(8, Math.max(3, visible.length))}>
                 {visible.map((channel) => <option key={channel.url} value={channel.url}>{channel.name}{channel.country ? ` · ${channel.country}` : ""}{channel.category ? ` · ${channel.category}` : ""}</option>)}
               </select>
             </label>
-            <button disabled={!selectedUrl || busy} onClick={() => void playSelected()}>{busy ? "Cargando…" : playing ? "Volver a cargar canal" : "▶ Reproducir canal seleccionado"}</button>
+            {selectedUrl ? <button type="button" onClick={() => toggleFavorite(selectedUrl)}>{favoriteUrls.includes(selectedUrl) ? "★ Quitar de favoritos" : "☆ Añadir a favoritos"}</button> : null}
+            <button disabled={!visible.some((channel) => channel.url === selectedUrl) || busy} onClick={() => void playSelected()}>{busy ? "Cargando…" : playing ? "Volver a cargar canal" : "▶ Reproducir canal seleccionado"}</button>
             <span className="diagnostic-note">El reproductor admite HLS (.m3u8), MP4, WebM y audio compatible; la reproducción depende de que la URL sea directa, accesible y autorizada.</span>
           </div>
           <div className="video-wrap">
