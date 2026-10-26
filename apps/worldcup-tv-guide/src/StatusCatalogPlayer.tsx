@@ -125,6 +125,7 @@ export function StatusCatalogPlayer() {
   const [message, setMessage] = useState("Carga un catálogo que contenga direcciones directas .m3u8 para reproducirlas aquí.");
   const [busy, setBusy] = useState(false);
   const [playing, setPlaying] = useState(false);
+  const [catalogUrl, setCatalogUrl] = useState("https://iptv-doctor.onrender.com/status-index.json");
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<InstanceType<HlsConstructor> | undefined>(undefined);
 
@@ -150,6 +151,34 @@ export function StatusCatalogPlayer() {
       setChannels([]);
       setSelectedUrl("");
       setMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function loadRemoteCatalog(): Promise<void> {
+    const raw = catalogUrl.trim();
+    if (!raw) { setMessage("Introduce la URL pública de un catálogo JSON, CSV, M3U o M3U8."); return; }
+    let url: URL;
+    try { url = new URL(raw); } catch { setMessage("La URL del catálogo no es válida."); return; }
+    if (url.protocol !== "https:" && url.protocol !== "http:") { setMessage("Solo se admiten direcciones HTTP o HTTPS."); return; }
+    setBusy(true);
+    setPlaying(false);
+    setMessage("Descargando catálogo remoto…");
+    try {
+      const response = await fetch(url.toString(), { headers: { Accept: "application/json,text/csv,audio/x-mpegurl,text/plain,*/*" } });
+      if (!response.ok) throw new Error(`El catálogo respondió HTTP ${response.status}.`);
+      const text = await response.text();
+      const filename = url.pathname.split("/").pop() || "catalog.json";
+      const parsed = parseCatalog(text, filename);
+      const unique = [...new Map(parsed.map((channel) => [channel.url, channel])).values()];
+      setChannels(unique);
+      setSelectedUrl(unique[0]?.url ?? "");
+      setMessage(unique.length
+        ? `Catálogo remoto cargado: ${unique.length} enlaces HLS directos encontrados.`
+        : "El catálogo remoto se descargó, pero no contiene enlaces directos .m3u8. Los campos urlHost son dominios de páginas web, no direcciones de vídeo. Si el servidor bloquea CORS, descarga el archivo e impórtalo desde tu equipo.");
+    } catch (error) {
+      setMessage(error instanceof Error ? `No se pudo leer el catálogo remoto: ${error.message}. Prueba a descargar el archivo e importarlo localmente; el servidor puede bloquear CORS.` : String(error));
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -201,6 +230,12 @@ export function StatusCatalogPlayer() {
       <h2>Importar catálogo y reproducir</h2>
       <p>Admite archivos M3U/M3U8, JSON y CSV. Detecta enlaces directos a manifiestos HLS y permite elegir un canal. No convierte nombres de dominio en enlaces de vídeo ni evita CORS, autenticación o DRM.</p>
       <input aria-label="Importar catálogo JSON CSV M3U" type="file" accept=".json,.csv,.m3u,.m3u8,application/json,text/csv,audio/x-mpegurl" onChange={(event) => void loadFile(event.target.files?.[0])} />
+      <div className="remote-catalog-controls">
+        <label>O cargar catálogo desde una URL pública
+          <input type="url" value={catalogUrl} onChange={(event) => setCatalogUrl(event.target.value)} placeholder="https://ejemplo.com/catalogo.json" />
+        </label>
+        <button disabled={busy || !catalogUrl.trim()} onClick={() => void loadRemoteCatalog()}>{busy ? "Cargando catálogo…" : "Leer catálogo remoto"}</button>
+      </div>
       <p className="diagnostic-note">También puedes importar los archivos JSON/CSV del índice de estado. Si solo contienen nombres y urlHost, no habrá enlaces reproducibles que extraer: será necesario un catálogo que publique las URL de vídeo.</p>
       {message ? <p role="status" className="player-message">{message}</p> : null}
       {channels.length > 0 ? (
