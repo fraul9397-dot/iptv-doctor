@@ -117,14 +117,14 @@ export function App() {
     <main className="shell">
       <section className="toolbar">
         <div>
-          <p className="eyebrow">IPTV playlist checker</p>
-          <h1>IPTV Doctor</h1>
+          <p className="eyebrow">STREAM INTELLIGENCE · PLAYLIST HEALTH · MEDIA TOOLS</p>
+          <h1>IPTV Doctor<span aria-hidden="true" style={{ color: "var(--accent)" }}>.</span></h1>
           <p className="dek">
-            Check M3U and M3U8 playlists, clean dead IPTV channels, fix XMLTV EPG IDs, and export legal World Cup 2026 metadata.
+            Centro profesional para analizar listas M3U, diagnosticar fuentes, organizar catálogos y reproducir emisiones públicas o autorizadas desde un solo lugar.
           </p>
         </div>
         <div className="actions">
-          <a className="button-link" href="https://github.com/xyzs996/iptv-doctor" target="_blank" rel="noreferrer">
+          <a className="button-link" href="https://github.com/fraul9397-dot/iptv-doctor" target="_blank" rel="noreferrer">
             <Github size={16} /> GitHub
           </a>
           <a className="button-link" href="https://www.npmjs.com/package/iptv-doctor" target="_blank" rel="noreferrer">
