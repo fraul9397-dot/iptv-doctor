@@ -100,6 +100,11 @@ h3 { font-size: 17px; }
 .video-wrap { min-width: 0; }
 .video-wrap video { aspect-ratio: 16 / 9; background: #02060b; border: 1px solid #263850; border-radius: 14px; display: block; max-height: 72vh; width: 100%; }
 .remote-catalog-controls { align-items: end; display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr) auto; margin: 13px 0; }
+.playlist-presets { border: 1px solid #28496b; border-radius: 12px; padding: 14px; margin: 14px 0; background: rgba(21, 46, 72, .45); }
+.playlist-presets p { margin: 0 0 10px; color: #c7d8eb; font-size: 13px; line-height: 1.5; }
+.playlist-preset-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.playlist-preset-actions button { min-height: 40px; }
+@media (max-width: 640px) { .playlist-preset-actions { display: grid; grid-template-columns: 1fr; } }
 .remote-catalog-controls input[type="url"] { min-width: 0; }
 .web-source-list { border-top: 1px solid var(--border); display: grid; gap: 12px; margin-top: 18px; padding-top: 18px; }
 .web-source-list h3, .site-discovery h3 { color: var(--text); margin: 0; }
