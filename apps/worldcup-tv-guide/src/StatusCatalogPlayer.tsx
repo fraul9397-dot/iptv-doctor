@@ -304,7 +304,7 @@ export function StatusCatalogPlayer() {
       ) : [];
     } catch { return []; }
   });
-  const [catalogUrl, setCatalogUrl] = useState("https://iptv-doctor.onrender.com/status-index.json");
+  const [catalogUrl, setCatalogUrl] = useState("https://www.tdtchannels.com/lists/tv.m3u8");
   const [siteUrl, setSiteUrl] = useState("https://abema.tv");
   const [discoveredItems, setDiscoveredItems] = useState<DiscoveredItem[]>(ABEMA_CATEGORIES);
   const [siteMessage, setSiteMessage] = useState("ABEMA: géneros oficiales precargados. Pulsa «Buscar contenidos públicos» para intentar leer los programas y eventos que la web publique.");
@@ -384,8 +384,9 @@ export function StatusCatalogPlayer() {
     }
   }
 
-  async function loadRemoteCatalog(): Promise<void> {
-    const raw = catalogUrl.trim();
+  async function loadRemoteCatalog(overrideUrl?: string): Promise<void> {
+    const raw = (overrideUrl ?? catalogUrl).trim();
+    if (overrideUrl) setCatalogUrl(overrideUrl);
     if (!raw) { setMessage("Introduce la URL pública de un catálogo JSON, CSV, M3U o M3U8."); return; }
     let url: URL;
     try { url = new URL(raw); } catch { setMessage("La URL del catálogo no es válida."); return; }
@@ -553,6 +554,13 @@ export function StatusCatalogPlayer() {
       <h2>Importar catálogo y reproducir</h2>
       <p>Admite catálogos M3U/M3U8, JSON y CSV; reproduce HLS (.m3u8), DASH (.mpd), MP4, WebM y audio compatible. Busca por canal, filtra categorías y guarda favoritos en este navegador. Las fuentes deben ser públicas o estar autorizadas; no se elude DRM ni autenticación.</p>
       <input aria-label="Importar catálogo JSON CSV M3U" type="file" accept=".json,.csv,.m3u,.m3u8,application/json,text/csv,audio/x-mpegurl" onChange={(event) => void loadFile(event.target.files?.[0])} />
+      <div className="playlist-presets">
+        <p><strong>Listas públicas para reproducir</strong> · fuentes de TV/radio en abierto de TDTChannels. No incluyen canales de pago como Movistar o DAZN.</p>
+        <div className="playlist-preset-actions">
+          <button type="button" disabled={busy} onClick={() => void loadRemoteCatalog("https://www.tdtchannels.com/lists/tv.m3u8")}>Cargar TV en abierto (M3U)</button>
+          <button type="button" disabled={busy} onClick={() => void loadRemoteCatalog("https://www.tdtchannels.com/lists/radio.m3u8")}>Cargar radio (M3U)</button>
+        </div>
+      </div>
       <div className="remote-catalog-controls">
         <label>O cargar catálogo desde una URL pública
           <input type="url" value={catalogUrl} onChange={(event) => setCatalogUrl(event.target.value)} placeholder="URL de catálogo M3U, M3U8, JSON o CSV" />
