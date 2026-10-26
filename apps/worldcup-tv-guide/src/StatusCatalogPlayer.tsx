@@ -284,14 +284,33 @@ export function StatusCatalogPlayer() {
     let url: URL;
     try { url = new URL(raw); } catch { setMessage("La URL del catálogo no es válida."); return; }
     if (url.protocol !== "https:" && url.protocol !== "http:") { setMessage("Solo se admiten direcciones HTTP o HTTPS."); return; }
+    if (mediaKind(url.toString())) {
+      const direct = [{ name: url.hostname, url: url.toString() }];
+      setChannels(direct);
+      setWebSources([]);
+      setSelectedUrl(url.toString());
+      setMessage("URL directa de vídeo reconocida. Pulsa «Reproducir canal seleccionado».");
+      return;
+    }
     setBusy(true);
     setPlaying(false);
-    setMessage("Descargando catálogo remoto…");
+    setMessage("Leyendo catálogo remoto (con alternativa para servidores sin CORS)…");
     try {
-      const response = await fetch(url.toString(), { headers: { Accept: "application/json,text/csv,audio/x-mpegurl,text/plain,*/*" } });
-      if (!response.ok) throw new Error(`El catálogo respondió HTTP ${response.status}.`);
-      const text = await response.text();
-      const filename = url.pathname.split("/").pop() || "catalog.json";
+      let text: string;
+      let filename = url.pathname.split("/").pop() || "catalog.json";
+      try {
+        const response = await fetch(url.toString(), { headers: { Accept: "application/json,text/csv,audio/x-mpegurl,text/plain,*/*" } });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        text = await response.text();
+      } catch {
+        const proxyUrl = new URL("https://iptv-doctor-public-catalog.onrender.com/api/catalog");
+        proxyUrl.searchParams.set("url", url.toString());
+        const proxyResponse = await fetch(proxyUrl.toString(), { headers: { Accept: "application/json" } });
+        const proxyData = await proxyResponse.json() as { error?: string; content?: string; filename?: string };
+        if (!proxyResponse.ok || typeof proxyData.content !== "string") throw new Error(proxyData.error || "No se pudo leer el catálogo remoto, ni directamente ni mediante el lector público.");
+        text = proxyData.content;
+        filename = proxyData.filename || filename;
+      }
       const sources = parseWebSources(text, filename);
       setWebSources(sources);
       const parsed = parseCatalog(text, filename);
