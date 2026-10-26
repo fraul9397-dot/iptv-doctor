@@ -207,6 +207,21 @@ const server = createServer(async (req, res) => {
       if (robotsResponse.ok) robots = (await robotsResponse.text()).slice(0, 100000);
     } catch {}
     const queue = [start];
+    // ABEMA is a JavaScript-heavy SPA, so seed known public category pages instead of relying on homepage anchors.
+    if (start.hostname === "abema.tv" || start.hostname.endsWith(".abema.tv")) {
+      const publicPaths = [
+        "/now-on-air", "/timetable", "/video/genre/sports", "/video/genre/anime",
+        "/video/genre/news", "/video/genre/drama", "/video/genre/variety",
+        "/video/genre/movie", "/video/genre/documentary", "/video/genre/music",
+        "/video/genre/romance", "/video/genre/kyoyo", "/video/genre/mahjong",
+        "/video/genre/entertainment", "/video/genre/asia", "/video/genre/fighting",
+        "/video/genre/hiphop", "/video/genre/keiba", "/video/genre/voice-actor"
+      ];
+      for (const path of publicPaths) {
+        const categoryUrl = new URL(path, start);
+        if (robotsAllows(robots, categoryUrl.pathname)) queue.push(categoryUrl);
+      }
+    }
     // Use public sitemaps as discovery hints; only same-host URLs are queued.
     for (const sitemapPath of ["/sitemap.xml", "/sitemap_index.xml", "/sitemap-index.xml"]) {
       try {
